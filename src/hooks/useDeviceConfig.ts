@@ -10,6 +10,7 @@ import {
 } from '@/types/deviceConfig';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
+import { resolveCameraHlsUrl } from '@/lib/cameraStream';
 
 const DEFAULT_DEVICES: CameraDevice[] = [
   {
@@ -130,7 +131,7 @@ const defaultRTSPConfig: RTSPConfig = {
   reconnectInterval: 5,
   bufferSize: 1024,
   lowLatencyMode: true,
-  hlsProxyUrl: 'http://localhost:8888/cam1/index.m3u8',
+  hlsProxyUrl: '/hls/cam1/index.m3u8',
 };
 
 export function useDeviceConfig() {
@@ -207,7 +208,7 @@ export function useDeviceConfig() {
   const loadDeviceConfig = useCallback(async (deviceId: string, deviceIp?: string) => {
     // 1. RTSP Config
     const safeStreamName = deviceId === 'cam_gate_1' ? 'cam1' : deviceId === 'cam_gate_2' ? 'cam2' : deviceId === 'cam_gate_3' ? 'cam3' : deviceId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'cam';
-    const fallbackHls = `http://localhost:8888/${safeStreamName}/index.m3u8`;
+    const fallbackHls = resolveCameraHlsUrl(`/hls/${safeStreamName}/index.m3u8`);
     const fallbackRtsp = `rtsp://admin:Password@123@${deviceIp || '192.168.0.168'}:554/ch1/main/av_stream`;
 
     try {
@@ -226,7 +227,7 @@ export function useDeviceConfig() {
           reconnectInterval: serverRtsp.reconnect_interval || 5,
           bufferSize: serverRtsp.buffer_size || 1024,
           lowLatencyMode: Boolean(serverRtsp.low_latency_mode),
-          hlsProxyUrl: serverRtsp.hls_proxy_url || fallbackHls,
+          hlsProxyUrl: resolveCameraHlsUrl(serverRtsp.hls_proxy_url || fallbackHls),
         });
       } else {
         throw new Error('Not found on server');

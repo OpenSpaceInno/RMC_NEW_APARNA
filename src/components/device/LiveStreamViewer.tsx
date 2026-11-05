@@ -22,6 +22,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import Hls from 'hls.js';
+import { resolveCameraHlsUrl } from '@/lib/cameraStream';
 
 interface LiveStreamViewerProps {
   device: CameraDevice | null;
@@ -237,7 +238,8 @@ export function LiveStreamViewer({
     }
 
     // Try HLS playback via MediaMTX proxy
-    const hlsUrl = rtspConfig.hlsProxyUrl || `http://localhost:8888/${device.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}/index.m3u8`;
+    const rawHlsUrl = rtspConfig.hlsProxyUrl || `http://localhost:8888/${device.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}/index.m3u8`;
+    const hlsUrl = resolveCameraHlsUrl(rawHlsUrl);
     setStreamStatus('connecting');
     setErrorMessage(null);
 

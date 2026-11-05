@@ -28,6 +28,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
+import { resolveCameraHlsUrl } from '@/lib/cameraStream';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
 
@@ -53,7 +54,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Front Bumper / Plate OCR',
     ip: '192.168.0.101',
     location: 'Gate Entry',
-    hlsUrl: 'http://localhost:8888/cam1/index.m3u8',
+    hlsUrl: '/hls/cam1/index.m3u8',
     defaultPlate: 'MH 12 RN 4501',
     targetRoute: '/gate-monitor',
     showOnDashboard: true,
@@ -66,7 +67,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Toledo Platform & Wheel Deck',
     ip: '192.168.0.99',
     location: 'Weighbridge Bay 1',
-    hlsUrl: 'http://localhost:8888/cam2/index.m3u8',
+    hlsUrl: '/hls/cam2/index.m3u8',
     defaultPlate: 'KA 04 MM 9123',
     targetRoute: '/weighbridge',
     showOnDashboard: true,
@@ -79,7 +80,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Rear Chute & Outbound Barrier',
     ip: '192.168.0.99',
     location: 'Gate Exit',
-    hlsUrl: 'http://localhost:8888/cam3/index.m3u8',
+    hlsUrl: '/hls/cam3/index.m3u8',
     defaultPlate: 'MH 14 DE 7890',
     targetRoute: '/exit-verification',
     showOnDashboard: true,
@@ -148,13 +149,15 @@ export function PlantHeadCameraSurveillance() {
             }
 
             if (!hlsUrl) {
-              if (devId === 'cam_gate_1') hlsUrl = 'http://localhost:8888/cam1/index.m3u8';
-              else if (devId === 'cam_gate_2') hlsUrl = 'http://localhost:8888/cam2/index.m3u8';
-              else if (devId === 'cam_gate_3') hlsUrl = 'http://localhost:8888/cam3/index.m3u8';
+              if (devId === 'cam_gate_1') hlsUrl = '/hls/cam1/index.m3u8';
+              else if (devId === 'cam_gate_2') hlsUrl = '/hls/cam2/index.m3u8';
+              else if (devId === 'cam_gate_3') hlsUrl = '/hls/cam3/index.m3u8';
               else {
                 const safePath = devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `cam${index + 1}`;
-                hlsUrl = `http://localhost:8888/${safePath}/index.m3u8`;
+                hlsUrl = `/hls/${safePath}/index.m3u8`;
               }
+            } else {
+              hlsUrl = resolveCameraHlsUrl(hlsUrl);
             }
 
             const loc = (c.location || 'entry').toLowerCase();
