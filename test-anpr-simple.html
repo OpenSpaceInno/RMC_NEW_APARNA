@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple ANPR Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border-radius: 4px;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        input {
+            width: 100%;
+            padding: 15px;
+            font-size: 24px;
+            font-family: monospace;
+            text-align: center;
+            border: 2px solid #3b82f6;
+            border-radius: 4px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .log {
+            background: #000;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .log div {
+            padding: 2px 0;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <h1>🎥 Simple ANPR Test</h1>
+    <p>Direct test of camera frame capture and ANPR detection</p>
+
+    <div class="container">
+        <h2>Live Camera Feed</h2>
+        <video id="video" autoplay muted playsinline></video>
+        <p id="videoStatus">Loading video...</p>
+    </div>
+
+    <div class="container">
+        <h2>Detected License Plate</h2>
+        <input type="text" id="plateNumber" placeholder="No plate detected yet" readonly>
+        <p id="confidence"></p>
+    </div>
+
+    <div class="container">
+        <h2>Controls</h2>
+        <button id="captureBtn" onclick="captureAndDetect()">📸 Capture & Detect Now</button>
+        <button onclick="clearLogs()">🗑️ Clear Logs</button>
+    </div>
+
+    <div class="container">
+        <h2>Console Logs</h2>
+        <div id="logs" class="log"></div>
+    </div>
+
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const plateInput = document.getElementById('plateNumber');
+        const confidenceEl = document.getElementById('confidence');
+        const captureBtn = document.getElementById('captureBtn');
+        const logsEl = document.getElementById('logs');
+        const videoStatus = document.getElementById('videoStatus');
+
+        let isProcessing = false;
+
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logsEl.insertBefore(div, logsEl.firstChild);
+            console.log(message);
+        }
+
+        function clearLogs() {
+            logsEl.innerHTML = '';
+        }
+
+        // Load HLS stream
+        const hlsUrl = 'http://localhost:8888/cam1/index.m3u8';
+        log('Loading HLS stream: ' + hlsUrl, 'info');
+
+        if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                log('✅ HLS stream loaded successfully', 'success');
+                videoStatus.textContent = '✅ Video ready - Click "Capture & Detect Now" to test';
+                video.play();
+            });
+
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                log('❌ HLS Error: ' + data.type + ' - ' + data.details, 'error');
+                videoStatus.textContent = '❌ Error loading video';
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = hlsUrl;
+            video.addEventListener('loadedmetadata', function() {
+                log('✅ Video loaded (native HLS)', 'success');
+                videoStatus.textContent = '✅ Video ready';
+                video.play();
+            });
+        } else {
+            log('❌ HLS not supported in this browser', 'error');
+            videoStatus.textContent = '❌ HLS not supported';
+        }
+
+        async function captureAndDetect() {
+            if (isProcessing) {
+                log('⚠️ Already processing, please wait...', 'info');
+                return;
+            }
+
+            if (video.paused || video.readyState < 2) {
+                log('❌ Video not ready. ReadyState: ' + video.readyState, 'error');
+                alert('Video is not ready yet. Please wait for video to load.');
+                return;
+            }
+
+            try {
+                isProcessing = true;
+                captureBtn.disabled = true;
+                captureBtn.textContent = '⏳ Processing...';
+
+                log('📸 Capturing frame from video...', 'info');
+                log(`Video size: ${video.videoWidth}x${video.videoHeight}`, 'info');
+
+                // Capture frame
+                canvas.width = 640;
+                canvas.height = 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, 640, 480);
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                const sizeKB = Math.round(dataUrl.length / 1024);
+                log(`✅ Frame captured (${sizeKB}KB)`, 'success');
+
+                // Convert to blob
+                const response = await fetch(dataUrl);
+                const blob = await response.blob();
+
+                // Send to ANPR API
+                log('🔍 Sending to ANPR API...', 'info');
+                const formData = new FormData();
+                formData.append('image', blob, 'frame.jpg');
+                formData.append('camera_id', 'cam_gate_1');
+
+                const apiResponse = await fetch('http://localhost:3001/api/anpr/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!apiResponse.ok) {
+                    throw new Error(`API returned ${apiResponse.status}: ${apiResponse.statusText}`);
+                }
+
+                const result = await apiResponse.json();
+                log('📊 ANPR Result: ' + JSON.stringify(result), 'info');
+
+                if (result.success && result.plates && result.plates.length > 0) {
+                    const plate = result.plates[0];
+                    log(`✅ Plate detected: ${plate.plate} (${(plate.confidence * 100).toFixed(1)}%)`, 'success');
+                    
+                    plateInput.value = plate.plate;
+                    confidenceEl.textContent = `Confidence: ${(plate.confidence * 100).toFixed(1)}%`;
+                    confidenceEl.style.color = plate.confidence >= 0.92 ? '#10b981' : '#f59e0b';
+                } else {
+                    log('⚠️ No plates detected in frame', 'info');
+                    plateInput.value = 'No plate detected';
+                    confidenceEl.textContent = '';
+                }
+
+            } catch (error) {
+                log('❌ Error: ' + error.message, 'error');
+                alert('Error: ' + error.message);
+            } finally {
+                isProcessing = false;
+                captureBtn.disabled = false;
+                captureBtn.textContent = '📸 Capture & Detect Now';
+            }
+        }
+
+        // Log video events
+        video.addEventListener('playing', () => log('▶️ Video is playing', 'success'));
+        video.addEventListener('pause', () => log('⏸️ Video paused', 'info'));
+        video.addEventListener('error', (e) => log('❌ Video error: ' + e.message, 'error'));
+
+        log('🚀 Page loaded. Waiting for video...', 'info');
+    </script>
+</body>
+</html>

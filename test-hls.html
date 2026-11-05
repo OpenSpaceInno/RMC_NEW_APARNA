@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HLS Stream Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .stream-container {
+            margin: 20px 0;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border-radius: 4px;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background: #10b981; }
+        .error { background: #ef4444; }
+        .info { background: #3b82f6; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 HLS Stream Test</h1>
+    <p>Testing MediaMTX HLS streams</p>
+
+    <!-- Test Stream -->
+    <div class="stream-container">
+        <h2>Test Stream (Big Buck Bunny)</h2>
+        <video id="test-video" controls></video>
+        <div id="test-status" class="status info">Ready to play</div>
+        <button onclick="playStream('test')">Play Test Stream</button>
+    </div>
+
+    <!-- Camera 1 -->
+    <div class="stream-container">
+        <h2>Camera 1 - Gate Entry ANPR</h2>
+        <video id="cam1-video" controls></video>
+        <div id="cam1-status" class="status info">Ready to play</div>
+        <button onclick="playStream('cam1')">Play Camera 1</button>
+    </div>
+
+    <!-- Camera 2 -->
+    <div class="stream-container">
+        <h2>Camera 2 - Gate Entry Side View</h2>
+        <video id="cam2-video" controls></video>
+        <div id="cam2-status" class="status info">Ready to play</div>
+        <button onclick="playStream('cam2')">Play Camera 2</button>
+    </div>
+
+    <script>
+        const streams = {
+            test: 'http://localhost:8888/test/index.m3u8',
+            cam1: 'http://localhost:8888/cam1/index.m3u8',
+            cam2: 'http://localhost:8888/cam2/index.m3u8'
+        };
+
+        const hlsInstances = {};
+
+        function updateStatus(streamId, message, type = 'info') {
+            const statusEl = document.getElementById(`${streamId}-status`);
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        function playStream(streamId) {
+            const video = document.getElementById(`${streamId}-video`);
+            const streamUrl = streams[streamId];
+
+            updateStatus(streamId, 'Loading stream...', 'info');
+
+            // Destroy existing instance
+            if (hlsInstances[streamId]) {
+                hlsInstances[streamId].destroy();
+            }
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                });
+
+                hlsInstances[streamId] = hls;
+
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    updateStatus(streamId, '✅ Stream loaded successfully!', 'success');
+                    video.play().catch(err => {
+                        updateStatus(streamId, `❌ Autoplay blocked: ${err.message}`, 'error');
+                    });
+                });
+
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        updateStatus(streamId, `❌ Error: ${data.type} - ${data.details}`, 'error');
+                        
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log('Network error, trying to recover...');
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log('Media error, trying to recover...');
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                console.error('Fatal error, cannot recover');
+                                break;
+                        }
+                    }
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = streamUrl;
+                video.addEventListener('loadedmetadata', function() {
+                    updateStatus(streamId, '✅ Stream loaded (native HLS)', 'success');
+                    video.play();
+                });
+                video.addEventListener('error', function() {
+                    updateStatus(streamId, '❌ Failed to load stream', 'error');
+                });
+            } else {
+                updateStatus(streamId, '❌ HLS not supported in this browser', 'error');
+            }
+        }
+
+        // Auto-play test stream on load
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                playStream('test');
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

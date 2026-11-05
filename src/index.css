@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet map fixes */
+.leaflet-container {
+  font-family: inherit;
+}
+
+.custom-vehicle-marker,
+.custom-waypoint-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 215 25% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 15%;
+
+    --primary: 215 85% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 30% 92%;
+    --secondary-foreground: 215 25% 15%;
+
+    --muted: 210 30% 94%;
+    --muted-foreground: 215 15% 45%;
+
+    --accent: 210 30% 90%;
+    --accent-foreground: 215 25% 15%;
+
+    --destructive: 0 75% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 20% 88%;
+    --input: 215 20% 88%;
+    --ring: 215 85% 35%;
+
+    --radius: 0.5rem;
+
+    /* Status colors */
+    --success: 142 75% 40%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 90% 50%;
+    --warning-foreground: 215 25% 15%;
+    
+    --info: 200 85% 45%;
+    --info-foreground: 0 0% 100%;
+
+    /* Sidebar - Industrial theme */
+    --sidebar-background: 217 25% 18%;
+    --sidebar-foreground: 210 30% 85%;
+    --sidebar-primary: 215 85% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 25% 24%;
+    --sidebar-accent-foreground: 210 30% 90%;
+    --sidebar-border: 217 20% 30%;
+    --sidebar-ring: 215 85% 45%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(215 85% 35%), hsl(215 85% 45%));
+    --gradient-subtle: linear-gradient(180deg, hsl(210 40% 98%), hsl(210 30% 96%));
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(215 25% 15% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(215 25% 15% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(215 25% 15% / 0.15);
+    
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 217 25% 12%;
+    --foreground: 210 30% 90%;
+
+    --card: 217 25% 16%;
+    --card-foreground: 210 30% 90%;
+
+    --popover: 217 25% 16%;
+    --popover-foreground: 210 30% 90%;
+
+    --primary: 215 85% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217 25% 22%;
+    --secondary-foreground: 210 30% 85%;
+
+    --muted: 217 25% 20%;
+    --muted-foreground: 215 15% 60%;
+
+    --accent: 217 25% 24%;
+    --accent-foreground: 210 30% 90%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 20% 25%;
+    --input: 217 20% 25%;
+    --ring: 215 85% 50%;
+
+    /* Status colors for dark mode */
+    --success: 142 75% 45%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 38 90% 55%;
+    --warning-foreground: 215 25% 15%;
+    
+    --info: 200 85% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --sidebar-background: 217 25% 10%;
+    --sidebar-foreground: 210 30% 85%;
+    --sidebar-primary: 215 85% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 25% 18%;
+    --sidebar-accent-foreground: 210 30% 90%;
+    --sidebar-border: 217 20% 20%;
+    --sidebar-ring: 215 85% 50%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.2);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.3);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.4);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
