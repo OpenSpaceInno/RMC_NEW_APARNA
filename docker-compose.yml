@@ -1,0 +1,61 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aparna_rmc_app
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=${DB_HOST:-db}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-rmc_user}
+      - DB_PASSWORD=${DB_PASSWORD:-SecureRmcPassword2026!}
+      - DB_NAME=${DB_NAME:-rmc_gate_system}
+      - SFTPGO_HOST=${SFTPGO_HOST:-213.210.37.249}
+      - SFTPGO_API_URL=${SFTPGO_API_URL:-http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/api/v2}
+      - SFTPGO_ADMIN_USER=${SFTPGO_ADMIN_USER:-ftpsuperadmin}
+      - SFTPGO_ADMIN_PASS=${SFTPGO_ADMIN_PASS:-Demo#Test@2026}
+      - SFTPGO_USER=${SFTPGO_USER:-aparna_rmc}
+      - SFTPGO_PASS=${SFTPGO_PASS:-Rmc@Aparna#2026}
+      - SFTPGO_FTP_PORT=${SFTPGO_FTP_PORT:-2121}
+      - SFTPGO_SFTP_PORT=${SFTPGO_SFTP_PORT:-2222}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - rmc-network
+
+  db:
+    image: mysql:8.0
+    container_name: aparna_rmc_mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-RootSecurePass2026!}
+      MYSQL_DATABASE: ${DB_NAME:-rmc_gate_system}
+      MYSQL_USER: ${DB_USER:-rmc_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-SecureRmcPassword2026!}
+    ports:
+      - "3306:3306"
+    volumes:
+      - rmc_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u $$MYSQL_USER -p$$MYSQL_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - rmc-network
+
+volumes:
+  rmc_mysql_data:
+    driver: local
+
+networks:
+  rmc-network:
+    driver: bridge

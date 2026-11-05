@@ -45,9 +45,12 @@ export function useWeighbridgeScale() {
       return;
     }
 
-    // Determine WebSocket host dynamically (defaulting to localhost:3001)
-    const host = window.location.hostname || 'localhost';
-    const wsUrl = `ws://${host}:3001/scale`;
+    // Determine WebSocket host dynamically (supports dev port 5173, production host, and wss)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = (window.location.port === '5173' || window.location.port === '8080')
+      ? `${window.location.hostname || 'localhost'}:3001`
+      : window.location.host;
+    const wsUrl = `${protocol}//${host}/scale`;
 
     try {
       const ws = new WebSocket(wsUrl);

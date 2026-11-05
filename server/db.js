@@ -35,9 +35,10 @@ const pool = mysql.createPool({
 // Test connection
 async function testConnection() {
   try {
+    const dbName = process.env.DB_NAME || 'rmc_gate_system';
     // First, create database if it doesn't exist
     const connection = await poolWithoutDb.getConnection();
-    await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`);
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
     connection.release();
     
     // Then test connection to the database
@@ -54,11 +55,12 @@ async function testConnection() {
 // Initialize database and tables
 async function initializeDatabase() {
   try {
+    const dbName = process.env.DB_NAME || 'rmc_gate_system';
     const connection = await poolWithoutDb.getConnection();
     
     // Create database if it doesn't exist
-    await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`);
-    console.log(`✅ Database '${process.env.DB_NAME}' ready`);
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+    console.log(`✅ Database '${dbName}' ready`);
     connection.release();
     
     // Now use the database connection pool

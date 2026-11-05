@@ -91,7 +91,7 @@ const GateMonitor = () => {
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
       return url;
     }
-    const backendBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api$/, '');
+    const backendBase = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api')).replace(/\/api$/, '');
     return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
