@@ -29,6 +29,7 @@ import { RTSPConfig } from "@/types/deviceConfig";
 import Hls from 'hls.js';
 import { LiveANPRDetector } from "./LiveANPRDetector";
 import { useSimulatedFeed } from "./useSimulatedFeed";
+import { resolveCameraHlsUrl } from "@/lib/cameraStream";
 import { toast } from "sonner";
 
 interface LiveFeedViewerProps {
@@ -167,12 +168,11 @@ export function LiveFeedViewer({
           reconnectInterval: data.reconnect_interval || 5,
           bufferSize: data.buffer_size || 1024,
           lowLatencyMode: Boolean(data.low_latency_mode),
-          hlsProxyUrl: data.hls_proxy_url || (camera.id === 'cam_gate_1' 
-            ? 'http://localhost:8888/cam1/index.m3u8' 
-            : 'http://localhost:8888/cam2/index.m3u8'),
+          hlsProxyUrl: resolveCameraHlsUrl(data.hls_proxy_url, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2'),
         };
         setRtspConfig(config);
       } else {
+        const defaultPath = camera.id === 'cam_gate_1' ? 'cam1' : 'cam2';
         const defaultConfig: RTSPConfig = {
           enabled: true,
           url: '',
@@ -188,13 +188,12 @@ export function LiveFeedViewer({
           reconnectInterval: 5,
           bufferSize: 1024,
           lowLatencyMode: true,
-          hlsProxyUrl: camera.id === 'cam_gate_1'
-            ? 'http://localhost:8888/cam1/index.m3u8'
-            : 'http://localhost:8888/cam2/index.m3u8',
+          hlsProxyUrl: resolveCameraHlsUrl('', defaultPath),
         };
         setRtspConfig(defaultConfig);
       }
     } catch (err) {
+      const defaultPath = camera.id === 'cam_gate_1' ? 'cam1' : 'cam2';
       setRtspConfig({
         enabled: true,
         url: '',
@@ -210,9 +209,7 @@ export function LiveFeedViewer({
         reconnectInterval: 5,
         bufferSize: 1024,
         lowLatencyMode: true,
-        hlsProxyUrl: camera.id === 'cam_gate_1'
-          ? 'http://localhost:8888/cam1/index.m3u8'
-          : 'http://localhost:8888/cam2/index.m3u8',
+        hlsProxyUrl: resolveCameraHlsUrl('', defaultPath),
       });
     } finally {
       setLoading(false);
@@ -250,8 +247,9 @@ export function LiveFeedViewer({
         fragLoadingTimeOut: 4000,
       });
 
+      const targetStreamUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2');
       hlsRef.current = hls;
-      hls.loadSource(rtspConfig.hlsProxyUrl);
+      hls.loadSource(targetStreamUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -293,7 +291,8 @@ export function LiveFeedViewer({
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = rtspConfig.hlsProxyUrl;
+      const targetStreamUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2');
+      video.src = targetStreamUrl;
       video.addEventListener('loadedmetadata', () => {
         setStreamStatus('connected');
         video.play().catch(e => console.warn('Safari autoplay error:', e));

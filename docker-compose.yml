@@ -15,6 +15,8 @@ services:
       - DB_USER=${DB_USER:-rmc_user}
       - DB_PASSWORD=${DB_PASSWORD:-SecureRmcPassword2026!}
       - DB_NAME=${DB_NAME:-rmc_gate_system}
+      - MEDIAMTX_HOST=mediamtx
+      - MEDIAMTX_PORT=8888
       - SFTPGO_HOST=${SFTPGO_HOST:-213.210.37.249}
       - SFTPGO_API_URL=${SFTPGO_API_URL:-http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/api/v2}
       - SFTPGO_ADMIN_USER=${SFTPGO_ADMIN_USER:-ftpsuperadmin}
@@ -26,6 +28,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mediamtx:
+        condition: service_started
+    networks:
+      - rmc-network
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: aparna_rmc_mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8888:8888" # HLS proxy
+      - "8554:8554" # RTSP ingestion
+      - "8889:8889" # WebRTC
     networks:
       - rmc-network
 

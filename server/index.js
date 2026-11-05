@@ -60,6 +60,48 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increase limit for image uploads
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// MediaMTX HLS Reverse Proxy (converts /hls/:stream to MediaMTX port 8888, eliminating mixed-content errors on HTTPS)
+app.use('/hls', (req, res) => {
+  const mediamtxHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
+  const mediamtxPort = process.env.MEDIAMTX_PORT || 8888;
+  const targetPath = req.url; // e.g. /cam1/index.m3u8
+
+  const proxyReq = http.request(
+    {
+      hostname: mediamtxHost,
+      port: mediamtxPort,
+      path: targetPath,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: `${mediamtxHost}:${mediamtxPort}`
+      }
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, {
+        ...proxyRes.headers,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
+      proxyRes.pipe(res);
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    if (!res.headersSent) {
+      res.status(502).json({
+        error: 'HLS stream proxy unavailable',
+        detail: err.message,
+        stream: targetPath,
+        recommendation: 'Check if MediaMTX is active or switch to Simulated CCTV / WebCam mode'
+      });
+    }
+  });
+
+  req.pipe(proxyReq);
+});
+
 // Mount Modular API Routers
 app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
@@ -747,7 +789,7 @@ app.post('/api/anpr/recognize-edge', upload.single('image'), async (req, res) =>
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/scale')) {
+    if (req.path.startsWith('/api') || req.path.startsWith('/scale') || req.path.startsWith('/hls')) {
       return next();
     }
     res.sendFile(path.join(distPath, 'index.html'));

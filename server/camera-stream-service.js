@@ -58,7 +58,8 @@ export class CameraStreamService {
         socket.destroy();
         resolve(false);
       });
-      socket.connect(port, '127.0.0.1');
+      const targetHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
+      socket.connect(port, targetHost);
     });
   }
 
@@ -181,21 +182,21 @@ export class CameraStreamService {
         name: 'ANPR Camera (Gate Entry)',
         ip: '192.168.0.101',
         rtsp: 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
-        hlsProxy: `http://localhost:${this.streamEndpoints.hlsPort}/cam1/index.m3u8`
+        hlsProxy: `/hls/cam1/index.m3u8`
       },
       {
         id: 'cam_gate_2',
         name: 'IP Camera (Overview Lane)',
         ip: '192.168.0.99',
         rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-        hlsProxy: `http://localhost:${this.streamEndpoints.hlsPort}/cam2/index.m3u8`
+        hlsProxy: `/hls/cam2/index.m3u8`
       },
       {
         id: 'cam_gate_3',
         name: 'Exit & Weighbridge Camera (Gate Exit)',
         ip: '192.168.0.99',
         rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-        hlsProxy: `http://localhost:${this.streamEndpoints.hlsPort}/cam3/index.m3u8`
+        hlsProxy: `/hls/cam3/index.m3u8`
       }
     ];
 
@@ -213,7 +214,7 @@ export class CameraStreamService {
             ip: r.ip_address,
             location: r.location,
             rtsp: `rtsp://admin:Password@123@${r.ip_address || '192.168.0.100'}:554/ch1/main/av_stream`,
-            hlsProxy: `http://localhost:${this.streamEndpoints.hlsPort}/${safePath}/index.m3u8`
+            hlsProxy: `/hls/${safePath}/index.m3u8`
           };
         });
       }
@@ -228,11 +229,11 @@ export class CameraStreamService {
           port: this.streamEndpoints.hlsPort,
           active: hlsOpen,
           urls: {
-            cam1: `http://localhost:${this.streamEndpoints.hlsPort}/cam1/index.m3u8`,
-            cam2: `http://localhost:${this.streamEndpoints.hlsPort}/cam2/index.m3u8`,
-            cam3: `http://localhost:${this.streamEndpoints.hlsPort}/cam3/index.m3u8`,
-            exit2: `http://localhost:${this.streamEndpoints.hlsPort}/exit2/index.m3u8`,
-            test: `http://localhost:${this.streamEndpoints.hlsPort}/test/index.m3u8`,
+            cam1: `/hls/cam1/index.m3u8`,
+            cam2: `/hls/cam2/index.m3u8`,
+            cam3: `/hls/cam3/index.m3u8`,
+            exit2: `/hls/exit2/index.m3u8`,
+            test: `/hls/test/index.m3u8`,
           }
         },
         webrtc: {

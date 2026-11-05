@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWeighbridge } from "@/hooks/useWeighbridge";
 import { api } from "@/lib/api";
+import { resolveCameraHlsUrl } from "@/lib/cameraStream";
 import { toast } from "sonner";
 import Hls from "hls.js";
 
@@ -355,9 +356,9 @@ const Weighbridge = () => {
       }
     };
 
-    setupStream(cam1VideoRef.current, 'http://localhost:8888/cam1/index.m3u8', setCam1HlsActive, hls1Ref);
-    setupStream(cam2VideoRef.current, 'http://localhost:8888/cam2/index.m3u8', setCam2HlsActive, hls2Ref);
-    setupStream(cam3VideoRef.current, 'http://localhost:8888/cam3/index.m3u8', setCam3HlsActive, hls3Ref);
+    setupStream(cam1VideoRef.current, resolveCameraHlsUrl('', 'cam1'), setCam1HlsActive, hls1Ref);
+    setupStream(cam2VideoRef.current, resolveCameraHlsUrl('', 'cam2'), setCam2HlsActive, hls2Ref);
+    setupStream(cam3VideoRef.current, resolveCameraHlsUrl('', 'cam3'), setCam3HlsActive, hls3Ref);
 
     return () => {
       hls1Ref.current?.destroy();

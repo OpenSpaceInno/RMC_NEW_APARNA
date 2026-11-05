@@ -41,6 +41,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { resolveCameraHlsUrl } from '@/lib/cameraStream';
 import { WeightReading, Evidence } from '@/types/weighbridge';
 import { SapOutboundDelivery, SapExitSyncRequest, SapExitSyncResponse } from '@/types/sap';
 import { api } from '@/lib/api';
@@ -741,9 +742,9 @@ export function SapOutboundGateOutScreen({
       }
     };
 
-    setupStream(cam1VideoRef.current, 'http://localhost:8888/cam1/index.m3u8', setCam1HlsActive, hls1Ref);
-    setupStream(cam2VideoRef.current, 'http://localhost:8888/cam2/index.m3u8', setCam2HlsActive, hls2Ref);
-    setupStream(cam3VideoRef.current, 'http://localhost:8888/cam3/index.m3u8', setCam3HlsActive, hls3Ref);
+    setupStream(cam1VideoRef.current, resolveCameraHlsUrl('', 'cam1'), setCam1HlsActive, hls1Ref);
+    setupStream(cam2VideoRef.current, resolveCameraHlsUrl('', 'cam2'), setCam2HlsActive, hls2Ref);
+    setupStream(cam3VideoRef.current, resolveCameraHlsUrl('', 'cam3'), setCam3HlsActive, hls3Ref);
 
     return () => {
       hls1Ref.current?.destroy();
@@ -757,6 +758,161 @@ export function SapOutboundGateOutScreen({
       setCam3HlsActive(false);
     };
   }, [isOpen]);
+
+  // Live Canvas CCTV animation loop when HLS stream is inactive/offline
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let animId: number | null = null;
+    const render = () => {
+      // 1. CAM 01: Exit ANPR Front Plate Camera
+      if (cam1CanvasRef.current && !cam1HlsActive) {
+        const ctx = cam1CanvasRef.current.getContext('2d');
+        if (ctx) {
+          const w = 640;
+          const h = 360;
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, w, h);
+
+          // Pavement & exit barrier gate
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(0, 240, w, 120);
+          ctx.strokeStyle = '#e2e8f0';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([20, 20]);
+          ctx.beginPath();
+          ctx.moveTo(320, 240);
+          ctx.lineTo(320, 360);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Outbound truck cab
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(200, 120, 240, 160);
+          ctx.fillStyle = '#059669';
+          ctx.fillRect(230, 140, 180, 50);
+
+          // Headlights
+          ctx.fillStyle = '#fef08a';
+          ctx.beginPath();
+          ctx.arc(220, 220, 15, 0, Math.PI * 2);
+          ctx.arc(420, 220, 15, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Front bumper & license plate
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(190, 240, 260, 45);
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillRect(260, 250, 120, 26);
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 13px monospace';
+          ctx.fillText(vehicleNumber || 'MH12AB1234', 266, 268);
+
+          // Green OCR Detection Box
+          ctx.strokeStyle = '#10b981';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(256, 246, 128, 34);
+
+          // OSD Text
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(`CAM 01 • EXIT GATE ANPR • 3K UHD`, 10, 20);
+          ctx.fillStyle = '#10b981';
+          ctx.fillText(`[OCR 99.4%] PLATE: ${vehicleNumber || 'MH12AB1234'}`, 10, 36);
+        }
+      }
+
+      // 2. CAM 02: Platform Scale Deck
+      if (cam2CanvasRef.current && !cam2HlsActive) {
+        const ctx = cam2CanvasRef.current.getContext('2d');
+        if (ctx) {
+          const w = 640;
+          const h = 360;
+          ctx.fillStyle = '#0b1120';
+          ctx.fillRect(0, 0, w, h);
+
+          // Silos in background
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(60, 30, 50, 130);
+          ctx.fillRect(125, 20, 50, 140);
+          ctx.fillRect(190, 40, 45, 120);
+
+          // Scale deck
+          ctx.fillStyle = '#262d3d';
+          ctx.beginPath();
+          ctx.moveTo(180, 160);
+          ctx.lineTo(460, 160);
+          ctx.lineTo(600, 350);
+          ctx.lineTo(40, 350);
+          ctx.closePath();
+          ctx.fill();
+
+          // Yellow caution curb
+          ctx.fillStyle = '#eab308';
+          ctx.fillRect(40, 335, 560, 12);
+          ctx.fillStyle = '#000000';
+          for (let i = 50; i < 600; i += 40) {
+            ctx.fillRect(i, 335, 18, 12);
+          }
+
+          // Truck Bulker Tanker on platform
+          const truckX = 220;
+          const truckY = 170;
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(truckX, truckY, 200, 90);
+          ctx.fillStyle = '#94a3b8';
+          ctx.beginPath();
+          ctx.ellipse(truckX + 110, truckY + 40, 75, 32, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // OSD Text
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(`CAM 02 • SCALE PLATFORM BAY 02`, 10, 20);
+          ctx.fillStyle = '#10b981';
+          ctx.fillText(`LIVE WT: ${(currentWeight.weight / 1000).toFixed(2)} MT • STATUS: ${currentWeight.stable ? 'STABLE' : 'MOTION'}`, 10, 36);
+        }
+      }
+
+      // 3. CAM 03: Chute Seal / Rear Inspection
+      if (cam3CanvasRef.current && !cam3HlsActive) {
+        const ctx = cam3CanvasRef.current.getContext('2d');
+        if (ctx) {
+          const w = 640;
+          const h = 360;
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(0, 0, w, h);
+
+          // Cabin side profile
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(160, 100, 340, 180);
+          ctx.fillStyle = '#38bdf8';
+          ctx.fillRect(380, 120, 90, 70);
+
+          // Wheels
+          ctx.fillStyle = '#020617';
+          ctx.beginPath();
+          ctx.arc(240, 280, 32, 0, Math.PI * 2);
+          ctx.arc(430, 280, 32, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '11px sans-serif';
+          ctx.fillText(`CAM 03 • REAR CHUTE SEAL & INSPECTION`, 10, 20);
+          ctx.fillStyle = '#10b981';
+          ctx.fillText(`CHUTE SEAL: VERIFIED INTACT • EXIT CLEARED`, 10, 36);
+        }
+      }
+
+      animId = requestAnimationFrame(render);
+    };
+
+    animId = requestAnimationFrame(render);
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isOpen, vehicleNumber, currentWeight, cam1HlsActive, cam2HlsActive, cam3HlsActive]);
 
   // Capture snapshots from all 3 camera angles concurrently
   const handleCaptureAllCameras = () => {

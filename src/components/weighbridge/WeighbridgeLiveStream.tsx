@@ -36,6 +36,7 @@ import Hls from "hls.js";
 import { toast } from "sonner";
 import { WeightReading, Evidence } from "@/types/weighbridge";
 import { api } from "@/lib/api";
+import { resolveCameraHlsUrl } from "@/lib/cameraStream";
 import { CameraDiagnosticsModal } from "./CameraDiagnosticsModal";
 
 export interface CameraSource {
@@ -59,7 +60,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Front Bumper / Plate OCR',
     ip: '192.168.0.101',
     rtsp: 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
-    hls: 'http://localhost:8888/cam1/index.m3u8',
+    hls: '/hls/cam1/index.m3u8',
     resolution: '3K UHD (2880x1620)',
     defaultAngle: 'front',
     plateSample: 'MH 12 RN 4501'
@@ -71,7 +72,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Scale Platform & Wheel Deck',
     ip: '192.168.0.99',
     rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-    hls: 'http://localhost:8888/cam2/index.m3u8',
+    hls: '/hls/cam2/index.m3u8',
     resolution: '1080P FHD (1920x1080)',
     defaultAngle: 'side',
     plateSample: 'KA 04 MM 9123'
@@ -83,7 +84,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Chute Seal & Rear Plate',
     ip: '192.168.0.99',
     rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-    hls: 'http://localhost:8888/cam3/index.m3u8',
+    hls: '/hls/cam3/index.m3u8',
     resolution: '1080P FHD (1920x1080)',
     defaultAngle: 'rear',
     plateSample: 'MH 14 DE 7890'
@@ -138,7 +139,7 @@ export function WeighbridgeLiveStream({
               } catch {}
 
               const safePath = devId === 'cam_gate_1' ? 'cam1' : devId === 'cam_gate_2' ? 'cam2' : devId === 'cam_gate_3' ? 'cam3' : devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `cam${index + 1}`;
-              if (!hlsUrl) hlsUrl = `http://localhost:8888/${safePath}/index.m3u8`;
+              hlsUrl = resolveCameraHlsUrl(hlsUrl, safePath);
               if (!rtspUrl) rtspUrl = `rtsp://admin:Password@123@${c.ip_address || '192.168.0.100'}:554/ch1/main/av_stream`;
 
               const loc = (c.location || 'entry').toLowerCase();
@@ -512,13 +513,15 @@ export function WeighbridgeLiveStream({
     });
 
     let isConnected = false;
+    const defaultPath = screenIndex === 0 ? 'cam1' : screenIndex === 1 ? 'cam2' : 'cam3';
+    const streamSourceUrl = resolveCameraHlsUrl(cam.hls, defaultPath);
 
-    // Generous fallback timer: only activate simulation if physical camera cannot connect within 8 seconds
+    // Fast fallback timer: activate simulated CCTV if physical camera cannot connect within 3.5 seconds
     const fallbackTimer = setTimeout(() => {
       if (!isConnected && feedModes[screenIndex] === 'rtsp') {
         startTileSimulation(screenIndex);
       }
-    }, 8000);
+    }, 3500);
 
     const markConnected = () => {
       if (!isConnected) {
@@ -540,14 +543,14 @@ export function WeighbridgeLiveStream({
         enableWorker: true,
         lowLatencyMode: true,
         backBufferLength: 30,
-        manifestLoadingTimeOut: 8000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 8000,
-        fragLoadingTimeOut: 8000,
+        manifestLoadingTimeOut: 3500,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 3500,
+        fragLoadingTimeOut: 3500,
       });
 
       hlsInstances.current[screenIndex] = hls;
-      hls.loadSource(cam.hls);
+      hls.loadSource(streamSourceUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -563,7 +566,11 @@ export function WeighbridgeLiveStream({
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
+              // Physical RTSP camera unreachable from cloud server -> fallback to simulation
+              clearTimeout(fallbackTimer);
+              hls.destroy();
+              hlsInstances.current[screenIndex] = null;
+              startTileSimulation(screenIndex);
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               hls.recoverMediaError();
@@ -578,7 +585,7 @@ export function WeighbridgeLiveStream({
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = cam.hls;
+      video.src = streamSourceUrl;
       video.addEventListener('loadedmetadata', () => {
         markConnected();
         video.play().catch(e => console.warn('Safari video autoplay:', e));
