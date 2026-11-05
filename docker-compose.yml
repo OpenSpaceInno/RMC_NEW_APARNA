@@ -34,11 +34,11 @@ services:
       - rmc-network
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.mediamtx
     container_name: aparna_rmc_mediamtx
     restart: unless-stopped
-    volumes:
-      - ./mediamtx.yml:/mediamtx.yml:ro
     ports:
       - "8888:8888" # HLS proxy
       - "8554:8554" # RTSP ingestion
