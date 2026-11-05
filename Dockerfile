@@ -8,6 +8,14 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# Build args & env defaults
+ARG VITE_API_URL=/api
+ARG VITE_SUPABASE_URL=https://placeholder.supabase.co
+ARG VITE_SUPABASE_PUBLISHABLE_KEY=dummy-key
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
+
 # Copy full frontend source code and compile
 COPY . .
 RUN npm run build

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, isSupabaseConfigured } from '@/integrations/supabase/client';
 import { ExitWeightReading, ExitVerification, WeightComparison, PlateImage, ExitSlip } from '@/types/exitVerification';
 import { toast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
@@ -118,29 +118,31 @@ export const useExitVerification = () => {
         return;
       }
 
-      // Secondary fallback: Supabase
-      const { data, error } = await supabase
-        .from('exit_verifications')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Secondary fallback: Supabase (only if configured)
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase
+          .from('exit_verifications')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
-        const mappedVerifications: ExitVerification[] = data.map((v: any) => ({
-          verificationId: v.verification_id,
-          vehicleRegNo: v.vehicle_reg_no,
-          exitTimestamp: v.exit_timestamp,
-          exitWeight: Number(v.exit_weight),
-          entryWeight: v.entry_weight ? Number(v.entry_weight) : undefined,
-          loadingWeight: v.loading_weight ? Number(v.loading_weight) : undefined,
-          weightDifference: Number(v.weight_difference),
-          plateImages: [],
-          status: v.status as ExitVerification['status'],
-          operatorId: v.operator_id,
-          operatorName: v.operator_name,
-          remarks: v.remarks || undefined,
-          anomalyReason: v.anomaly_reason || undefined,
-        }));
-        setVerifications(mappedVerifications);
+        if (!error && data && data.length > 0) {
+          const mappedVerifications: ExitVerification[] = data.map((v: any) => ({
+            verificationId: v.verification_id,
+            vehicleRegNo: v.vehicle_reg_no,
+            exitTimestamp: v.exit_timestamp,
+            exitWeight: Number(v.exit_weight),
+            entryWeight: v.entry_weight ? Number(v.entry_weight) : undefined,
+            loadingWeight: v.loading_weight ? Number(v.loading_weight) : undefined,
+            weightDifference: Number(v.weight_difference),
+            plateImages: [],
+            status: v.status as ExitVerification['status'],
+            operatorId: v.operator_id,
+            operatorName: v.operator_name,
+            remarks: v.remarks || undefined,
+            anomalyReason: v.anomaly_reason || undefined,
+          }));
+          setVerifications(mappedVerifications);
+        }
       }
     } catch (error) {
       console.log('Using local exit verifications dataset');
@@ -395,24 +397,26 @@ export const useExitVerification = () => {
       }
     }));
 
-    // Try supabase insert in background
-    try {
-      await supabase.from('exit_verifications').insert({
-        verification_id: completedVerification.verificationId,
-        vehicle_reg_no: completedVerification.vehicleRegNo,
-        exit_timestamp: completedVerification.exitTimestamp,
-        exit_weight: completedVerification.exitWeight,
-        entry_weight: completedVerification.entryWeight || null,
-        loading_weight: completedVerification.loadingWeight || null,
-        weight_difference: completedVerification.weightDifference,
-        status: completedVerification.status,
-        operator_id: completedVerification.operatorId,
-        operator_name: completedVerification.operatorName,
-        remarks: completedVerification.remarks || null,
-        anomaly_reason: completedVerification.anomalyReason || null,
-      });
-    } catch {
-      // Supabase handled gracefully
+    // Try supabase insert in background (if configured)
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('exit_verifications').insert({
+          verification_id: completedVerification.verificationId,
+          vehicle_reg_no: completedVerification.vehicleRegNo,
+          exit_timestamp: completedVerification.exitTimestamp,
+          exit_weight: completedVerification.exitWeight,
+          entry_weight: completedVerification.entryWeight || null,
+          loading_weight: completedVerification.loadingWeight || null,
+          weight_difference: completedVerification.weightDifference,
+          status: completedVerification.status,
+          operator_id: completedVerification.operatorId,
+          operator_name: completedVerification.operatorName,
+          remarks: completedVerification.remarks || null,
+          anomaly_reason: completedVerification.anomalyReason || null,
+        });
+      } catch {
+        // Supabase handled gracefully
+      }
     }
 
     toast({
