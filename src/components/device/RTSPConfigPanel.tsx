@@ -221,7 +221,8 @@ export function RTSPConfigPanel({
                           size="sm"
                           className="h-5 px-1.5 text-[10px] gap-1"
                           onClick={() => {
-                            const cmd = `ffmpeg -rtsp_transport tcp -i "${getFullRtspUrl()}" -c copy -f rtsp "rtsp://213.210.37.249:8554/cam1"`;
+                            const streamId = deviceIp.includes('99') ? 'live_cam2' : 'live_cam1';
+                            const cmd = `ffmpeg -rtsp_transport tcp -i "${getFullRtspUrl()}" -c copy -rtsp_transport tcp -f rtsp "rtsp://213.210.37.249:8554/${streamId}"`;
                             navigator.clipboard.writeText(cmd);
                             setCopied(true);
                             setTimeout(() => setCopied(false), 2000);
@@ -232,7 +233,7 @@ export function RTSPConfigPanel({
                         </Button>
                       </div>
                       <code className="block text-[10px] font-mono text-emerald-500 break-all select-all">
-                        ffmpeg -rtsp_transport tcp -i "{getFullRtspUrl()}" -c copy -f rtsp "rtsp://213.210.37.249:8554/cam1"
+                        ffmpeg -rtsp_transport tcp -i "{getFullRtspUrl()}" -c copy -rtsp_transport tcp -f rtsp "rtsp://213.210.37.249:8554/{deviceIp.includes('99') ? 'live_cam2' : 'live_cam1'}"
                       </code>
                     </div>
                   </div>

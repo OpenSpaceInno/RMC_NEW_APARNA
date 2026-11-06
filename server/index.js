@@ -78,12 +78,15 @@ app.use('/hls', (req, res) => {
       }
     },
     (proxyRes) => {
-      res.writeHead(proxyRes.statusCode, {
-        ...proxyRes.headers,
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      });
+      const responseHeaders = { ...proxyRes.headers };
+      if (responseHeaders.location && !responseHeaders.location.startsWith('/hls/')) {
+        responseHeaders.location = `/hls${responseHeaders.location.startsWith('/') ? '' : '/'}${responseHeaders.location}`;
+      }
+      responseHeaders['Access-Control-Allow-Origin'] = '*';
+      responseHeaders['Access-Control-Allow-Headers'] = '*';
+      responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+
+      res.writeHead(proxyRes.statusCode, responseHeaders);
       proxyRes.pipe(res);
     }
   );
