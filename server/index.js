@@ -887,6 +887,9 @@ async function startServer() {
   // Initialize Media Server (MediaMTX / RTSP / HLS)
   cameraStreamService.ensureMediaServerRunning().catch(e => console.warn('Media server warning:', e.message));
 
+  // Initialize Automated Plant Camera Bridge (auto-starts detached streams on plant machine)
+  cameraStreamService.ensurePlantBridgesRunning().catch(e => console.warn('Plant bridge notice:', e.message));
+
   httpServer.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);

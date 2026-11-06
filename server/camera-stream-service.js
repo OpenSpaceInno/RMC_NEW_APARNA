@@ -98,6 +98,111 @@ export class CameraStreamService {
   }
 
   /**
+   * Locate FFmpeg binary on Windows or system PATH
+   */
+  getFfmpegPath() {
+    const wingetPath = path.join(
+      process.env.LOCALAPPDATA || 'C:\\Users\\surad\\AppData\\Local',
+      'Microsoft\\WinGet\\Packages\\Gyan.FFmpeg.Shared_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-9.0.2-full_build-shared\\bin\\ffmpeg.exe'
+    );
+    if (fs.existsSync(wingetPath)) return wingetPath;
+    return 'ffmpeg';
+  }
+
+  /**
+   * Automatically start and supervise plant camera streaming bridges in background.
+   * Runs 100% detached with zero console windows. Survives CMD closures.
+   */
+  async ensurePlantBridgesRunning() {
+    // Check if plant cameras exist on local network
+    const cam1Check = await this.checkTcpPort('192.168.0.101', 554, 800);
+    const cam2Check = await this.checkTcpPort('192.168.0.99', 554, 800);
+
+    if (!cam1Check.reachable && !cam2Check.reachable) {
+      // Cloud VPS or network without plant cameras: skip local bridge
+      return false;
+    }
+
+    const ffmpegBin = this.getFfmpegPath();
+    const cloudTarget = process.env.CLOUD_RTSP_TARGET || 'rtsp://213.210.37.249:8554';
+
+    const bridges = [
+      {
+        id: 'cam1',
+        name: 'Camera 1 (Entry ANPR 3K HEVC -> H.264)',
+        reachable: cam1Check.reachable,
+        args: [
+          '-rtsp_transport', 'tcp',
+          '-i', 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-tune', 'zerolatency',
+          '-g', '25',
+          '-keyint_min', '25',
+          '-sc_threshold', '0',
+          '-b:v', '2500k',
+          '-an',
+          '-rtsp_transport', 'tcp',
+          '-f', 'rtsp',
+          `${cloudTarget}/live_cam1`
+        ]
+      },
+      {
+        id: 'cam2',
+        name: 'Camera 2 (Exit Scale 1080p H.264)',
+        reachable: cam2Check.reachable,
+        args: [
+          '-rtsp_transport', 'tcp',
+          '-i', 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
+          '-c', 'copy',
+          '-an',
+          '-rtsp_transport', 'tcp',
+          '-f', 'rtsp',
+          `${cloudTarget}/live_cam2`
+        ]
+      }
+    ];
+
+    if (!this.bridgeWorkers) this.bridgeWorkers = new Map();
+
+    for (const bridge of bridges) {
+      if (!bridge.reachable || this.bridgeWorkers.has(bridge.id)) continue;
+
+      const launchWorker = () => {
+        try {
+          console.log(`🚀 [AutoBridge] Starting detached background stream for ${bridge.name}...`);
+          const proc = spawn(ffmpegBin, bridge.args, {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true
+          });
+
+          proc.unref();
+          this.bridgeWorkers.set(bridge.id, proc);
+
+          proc.on('exit', (code) => {
+            console.log(`⚠️ [AutoBridge] ${bridge.name} ended (exit ${code}). Auto-restarting in 3s...`);
+            this.bridgeWorkers.delete(bridge.id);
+            setTimeout(launchWorker, 3000);
+          });
+
+          proc.on('error', (err) => {
+            console.warn(`⚠️ [AutoBridge] ${bridge.name} error: ${err.message}. Retrying in 5s...`);
+            this.bridgeWorkers.delete(bridge.id);
+            setTimeout(launchWorker, 5000);
+          });
+        } catch (e) {
+          console.error(`Failed to launch ${bridge.name}:`, e.message);
+        }
+      };
+
+      launchWorker();
+    }
+
+    return true;
+  }
+
+  /**
    * Fast probe of remote TCP port (e.g. camera RTSP port 554)
    * @param {string} host
    * @param {number} port

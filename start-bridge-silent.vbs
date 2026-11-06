@@ -2,11 +2,11 @@ Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 strPath = fso.GetParentFolderName(WScript.ScriptFullName)
 
-' Run Camera 1 bridge silently in background (0 = hidden window)
-WshShell.Run """" & strPath & "\push-camera1-live.bat""", 0, False
+' Locate node.exe
+strNode = "node"
+If fso.FileExists("C:\Program Files\nodejs\node.exe") Then
+    strNode = "C:\Program Files\nodejs\node.exe"
+End If
 
-' Small 1-second stagger to prevent simultaneous resource spike
-WScript.Sleep 1000
-
-' Run Camera 2 bridge silently in background (0 = hidden window)
-WshShell.Run """" & strPath & "\push-camera2-live.bat""", 0, False
+' Run plant camera bridge supervisor 100% silently in background (0 = hidden window, zero CMD window)
+WshShell.Run """" & strNode & """ """ & strPath & "\plant-camera-bridge.js""", 0, False

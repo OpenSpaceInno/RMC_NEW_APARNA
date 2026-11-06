@@ -21,5 +21,5 @@ echo [%date% %time%] Connecting to Camera 1 and streaming to cloud server...
 
 echo.
 echo [%date% %time%] Camera session ended or network reconnected. Restarting in 2 seconds...
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 goto stream_loop
