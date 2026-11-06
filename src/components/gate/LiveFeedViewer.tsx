@@ -147,12 +147,23 @@ export function LiveFeedViewer({
   }, []);
 
   // Load RTSP configuration from backend API
+  // Load RTSP configuration from backend API
   const loadOrCreateRTSPConfig = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getRTSPConfig(camera.id);
 
+      const defaultStream = camera.id === 'cam_gate_1' ? 'live_cam1' : camera.id === 'cam_gate_2' ? 'live_cam2' : camera.id === 'cam_gate_3' ? 'live_cam2' : camera.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'live_cam1';
+
       if (data && !data.error) {
+        let configuredHls = data.hls_proxy_url || '';
+        // If configured as /cam1/ or /cam2/, map to live_cam1 / live_cam2 as primary
+        if (configuredHls.includes('/cam1/') && !configuredHls.includes('live_cam1')) {
+          configuredHls = configuredHls.replace('/cam1/', '/live_cam1/');
+        } else if (configuredHls.includes('/cam2/') && !configuredHls.includes('live_cam2')) {
+          configuredHls = configuredHls.replace('/cam2/', '/live_cam2/');
+        }
+
         const config: RTSPConfig = {
           enabled: Boolean(data.enabled),
           url: data.url || '',
@@ -168,11 +179,10 @@ export function LiveFeedViewer({
           reconnectInterval: data.reconnect_interval || 5,
           bufferSize: data.buffer_size || 1024,
           lowLatencyMode: Boolean(data.low_latency_mode),
-          hlsProxyUrl: resolveCameraHlsUrl(data.hls_proxy_url, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2'),
+          hlsProxyUrl: resolveCameraHlsUrl(configuredHls, defaultStream),
         };
         setRtspConfig(config);
       } else {
-        const defaultPath = camera.id === 'cam_gate_1' ? 'cam1' : 'cam2';
         const defaultConfig: RTSPConfig = {
           enabled: true,
           url: '',
@@ -188,12 +198,12 @@ export function LiveFeedViewer({
           reconnectInterval: 5,
           bufferSize: 1024,
           lowLatencyMode: true,
-          hlsProxyUrl: resolveCameraHlsUrl('', defaultPath),
+          hlsProxyUrl: resolveCameraHlsUrl('', defaultStream),
         };
         setRtspConfig(defaultConfig);
       }
     } catch (err) {
-      const defaultPath = camera.id === 'cam_gate_1' ? 'cam1' : 'cam2';
+      const defaultStream = camera.id === 'cam_gate_1' ? 'live_cam1' : camera.id === 'cam_gate_2' ? 'live_cam2' : camera.id === 'cam_gate_3' ? 'live_cam2' : camera.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'live_cam1';
       setRtspConfig({
         enabled: true,
         url: '',
@@ -209,7 +219,7 @@ export function LiveFeedViewer({
         reconnectInterval: 5,
         bufferSize: 1024,
         lowLatencyMode: true,
-        hlsProxyUrl: resolveCameraHlsUrl('', defaultPath),
+        hlsProxyUrl: resolveCameraHlsUrl('', defaultStream),
       });
     } finally {
       setLoading(false);
@@ -220,10 +230,10 @@ export function LiveFeedViewer({
     loadOrCreateRTSPConfig();
   }, [loadOrCreateRTSPConfig]);
 
-  // Connect HLS Stream (with fast timeout fallback)
+  // Connect HLS Stream (with dual stream fallback & robust timeouts)
   const connectHlsStream = useCallback(() => {
     if (feedMode === 'simulated') return;
-    if (!rtspConfig?.hlsProxyUrl || !videoRef.current) return;
+    if (!videoRef.current) return;
 
     const video = videoRef.current;
     setStreamStatus('connecting');
@@ -233,32 +243,66 @@ export function LiveFeedViewer({
       hlsRef.current = null;
     }
 
+    const defaultStream = camera.id === 'cam_gate_1' ? 'live_cam1' : camera.id === 'cam_gate_2' ? 'live_cam2' : camera.id === 'cam_gate_3' ? 'live_cam2' : camera.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'live_cam1';
+    const rawHlsUrl = rtspConfig?.hlsProxyUrl || `/hls/${defaultStream}/index.m3u8`;
+    let primaryUrl = resolveCameraHlsUrl(rawHlsUrl, defaultStream);
+
+    // If configured as /cam1/ or /cam2/, make live_cam1 / live_cam2 primary
+    if (primaryUrl.includes('/cam1/') && !primaryUrl.includes('live_cam1')) {
+      primaryUrl = primaryUrl.replace('/cam1/', '/live_cam1/');
+    } else if (primaryUrl.includes('/cam2/') && !primaryUrl.includes('live_cam2')) {
+      primaryUrl = primaryUrl.replace('/cam2/', '/live_cam2/');
+    }
+
+    // Smart fallback alternate alias
+    const alternateUrl = primaryUrl.includes('live_cam1')
+      ? primaryUrl.replace('live_cam1', 'cam1')
+      : primaryUrl.includes('/cam1/')
+      ? primaryUrl.replace('/cam1/', '/live_cam1/')
+      : primaryUrl.includes('live_cam2')
+      ? primaryUrl.replace('live_cam2', 'cam2')
+      : primaryUrl.includes('/cam2/')
+      ? primaryUrl.replace('/cam2/', '/live_cam2/')
+      : null;
+
+    let isResolved = false;
+    let triedAlternate = false;
     let networkRetryCount = 0;
-    const maxRetries = 2;
+    const maxRetries = 3;
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
         backBufferLength: 60,
-        manifestLoadingTimeOut: 4000,
-        manifestLoadingMaxRetry: 2,
-        levelLoadingTimeOut: 4000,
-        fragLoadingTimeOut: 4000,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 10000,
+        fragLoadingTimeOut: 10000,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+        }
       });
 
-      const targetStreamUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2');
       hlsRef.current = hls;
-      hls.loadSource(targetStreamUrl);
+      hls.loadSource(primaryUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log(`[${camera.id}] HLS manifest parsed successfully`);
+        isResolved = true;
+        console.log(`[${camera.id}] Live HLS stream connected successfully (${primaryUrl})`);
         setStreamStatus('connected');
         video.play().catch(e => console.warn('Autoplay error:', e));
       });
 
-      hls.on(Hls.Events.ERROR, (event, data) => {
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!isResolved && alternateUrl && !triedAlternate) {
+          triedAlternate = true;
+          console.info(`[${camera.id}] Primary stream ${primaryUrl} not ready; checking alternate ${alternateUrl}...`);
+          hls.loadSource(alternateUrl);
+          return;
+        }
+
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
@@ -290,14 +334,36 @@ export function LiveFeedViewer({
           }
         }
       });
+
+      // Allow up to 12s for initial HLS stream handshake
+      const fallbackTimer = setTimeout(() => {
+        if (!isResolved) {
+          console.info(`[${camera.id}] Stream connection timeout; engaging zero-latency simulation.`);
+          hls.destroy();
+          hlsRef.current = null;
+          startSimulation();
+          setFeedMode('simulated');
+          setStreamStatus('simulated');
+        }
+      }, 12000);
+
+      return () => {
+        clearTimeout(fallbackTimer);
+      };
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      const targetStreamUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl, camera.id === 'cam_gate_1' ? 'cam1' : 'cam2');
-      video.src = targetStreamUrl;
+      video.src = primaryUrl;
+      let triedAlt = false;
       video.addEventListener('loadedmetadata', () => {
+        isResolved = true;
         setStreamStatus('connected');
         video.play().catch(e => console.warn('Safari autoplay error:', e));
       });
       video.addEventListener('error', () => {
+        if (!triedAlt && alternateUrl) {
+          triedAlt = true;
+          video.src = alternateUrl;
+          return;
+        }
         startSimulation();
         setFeedMode('simulated');
         setStreamStatus('simulated');
@@ -432,19 +498,7 @@ export function LiveFeedViewer({
     toast.success(`ANPR Plate Captured: ${picked.plate} (${(picked.conf * 100).toFixed(0)}%)`);
   };
 
-  // Auto-engage live preview for gatekeeper if physical camera is offline
-  useEffect(() => {
-    if (gatekeeperMode && streamStatus === 'connecting') {
-      const timer = setTimeout(() => {
-        if (streamStatus === 'connecting') {
-          startSimulation();
-          setFeedMode('simulated');
-          setStreamStatus('simulated');
-        }
-      }, 3500);
-      return () => clearTimeout(timer);
-    }
-  }, [gatekeeperMode, streamStatus, startSimulation]);
+  // Note: HLS connection timeout and simulation fallback are safely handled in connectHlsStream (12s grace period)
 
   const isVideoLive = streamStatus === 'connected' || streamStatus === 'simulated';
 
@@ -481,7 +535,11 @@ export function LiveFeedViewer({
                 RTSP LIVE
               </Badge>
             ) : streamStatus === 'simulated' ? (
-              <Badge className="bg-sky-500/20 text-sky-400 border-sky-500/30 gap-1 font-mono">
+              <Badge 
+                className="bg-sky-500/20 text-sky-400 border-sky-500/30 gap-1 font-mono cursor-pointer hover:bg-sky-500/30 transition-colors"
+                onClick={handleSwitchToRTSP}
+                title="Click to reconnect to Physical Live RTSP Stream"
+              >
                 <Tv className="h-3 w-3 animate-pulse" />
                 SIMULATED PREVIEW
               </Badge>
@@ -556,6 +614,18 @@ export function LiveFeedViewer({
               </>
             ) : (
               <>
+                {feedMode === 'simulated' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1 border-emerald-500/50 text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/50 cursor-pointer animate-pulse"
+                    onClick={handleSwitchToRTSP}
+                    title="Switch to Live RTSP Feed"
+                  >
+                    <Video className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Go Live</span>
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"

@@ -309,9 +309,9 @@ export class CameraStreamService {
       const [rows] = await pool.query('SELECT * FROM camera_devices ORDER BY created_at');
       if (Array.isArray(rows) && rows.length > 0) {
         physicalCameras = rows.map((r, i) => {
-          const safePath = r.device_id === 'cam_gate_1' ? 'cam1' 
-            : r.device_id === 'cam_gate_2' ? 'cam2' 
-            : r.device_id === 'cam_gate_3' ? 'cam3' 
+          const safePath = r.device_id === 'cam_gate_1' ? 'live_cam1' 
+            : r.device_id === 'cam_gate_2' ? 'live_cam2' 
+            : r.device_id === 'cam_gate_3' ? 'live_cam2' 
             : r.device_id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `cam${i + 1}`;
           return {
             id: r.device_id,
@@ -334,6 +334,8 @@ export class CameraStreamService {
           port: this.streamEndpoints.hlsPort,
           active: hlsOpen,
           urls: {
+            live_cam1: `/hls/live_cam1/index.m3u8`,
+            live_cam2: `/hls/live_cam2/index.m3u8`,
             cam1: `/hls/cam1/index.m3u8`,
             cam2: `/hls/cam2/index.m3u8`,
             cam3: `/hls/cam3/index.m3u8`,
