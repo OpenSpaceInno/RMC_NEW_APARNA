@@ -55,35 +55,73 @@ export function RTSPConfigPanel({
     await onSave(localConfig);
   };
 
+  const isPrivateIp = (host: string) => {
+    if (!host) return false;
+    return (
+      host.startsWith('192.168.') ||
+      host.startsWith('10.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      host === '127.0.0.1' ||
+      host.toLowerCase() === 'localhost'
+    );
+  };
+
   const getFullRtspUrl = () => {
     if (localConfig.useDirectUrl && localConfig.directUrl) {
       return localConfig.directUrl;
     }
+    const cleanPass = localConfig.password ? encodeURIComponent(localConfig.password) : '';
     const auth = localConfig.username && localConfig.password 
-      ? `${localConfig.username}:${localConfig.password}@` 
+      ? `${localConfig.username}:${cleanPass}@` 
       : '';
     return `rtsp://${auth}${deviceIp}:${localConfig.port}${localConfig.streamPath}`;
   };
 
   const parseDirectUrl = (url: string) => {
     try {
-      // Parse RTSP URL: rtsp://[user:pass@]host:port/path
-      const rtspRegex = /^rtsp:\/\/(?:([^:]+):([^@]+)@)?([^:/]+):?(\d+)?(.*)$/;
-      const match = url.match(rtspRegex);
-      if (match) {
-        const [, username, password, host, port, path] = match;
-        return {
-          username: username || '',
-          password: password || '',
-          host,
-          port: parseInt(port) || 554,
-          path: path || '/stream'
-        };
+      if (!url || !url.toLowerCase().startsWith('rtsp://')) return null;
+      let remainder = url.slice(7); // strip rtsp://
+      let username = '';
+      let password = '';
+
+      // Find the last '@' which separates user:pass from host
+      const lastAt = remainder.lastIndexOf('@');
+      if (lastAt !== -1) {
+        const userinfo = remainder.substring(0, lastAt);
+        remainder = remainder.substring(lastAt + 1);
+        const colonIdx = userinfo.indexOf(':');
+        if (colonIdx !== -1) {
+          username = userinfo.substring(0, colonIdx);
+          password = userinfo.substring(colonIdx + 1);
+        } else {
+          username = userinfo;
+        }
       }
+
+      let host = '';
+      let port = 554;
+      let path = '/stream';
+
+      const slashIdx = remainder.indexOf('/');
+      let hostPort = remainder;
+      if (slashIdx !== -1) {
+        hostPort = remainder.substring(0, slashIdx);
+        path = remainder.substring(slashIdx);
+      }
+
+      const colonIdx = hostPort.lastIndexOf(':');
+      if (colonIdx !== -1) {
+        host = hostPort.substring(0, colonIdx);
+        port = parseInt(hostPort.substring(colonIdx + 1), 10) || 554;
+      } else {
+        host = hostPort;
+      }
+
+      return { username, password, host, port, path };
     } catch (e) {
       console.error('Failed to parse RTSP URL:', e);
+      return null;
     }
-    return null;
   };
 
   const copyRtspUrl = () => {
@@ -93,6 +131,8 @@ export function RTSPConfigPanel({
   };
 
   const parsedUrl = localConfig.directUrl ? parseDirectUrl(localConfig.directUrl) : null;
+  const activeHost = parsedUrl?.host || deviceIp;
+  const isHostPrivate = isPrivateIp(activeHost);
 
   return (
     <Card>
@@ -163,10 +203,61 @@ export function RTSPConfigPanel({
                   </div>
                 )}
 
+                {isHostPrivate && (
+                  <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 space-y-2 text-xs">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-500">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>Private Network IP Detected ({activeHost})</span>
+                    </div>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      This camera IP is inside your private plant/office LAN. Cloud servers cannot directly reach internal private IPs without an outbound bridge or VPN.
+                    </p>
+                    <div className="bg-background/80 p-2.5 rounded border border-border space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground text-[11px]">Push Live Stream from Plant PC:</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-1.5 text-[10px] gap-1"
+                          onClick={() => {
+                            const cmd = `ffmpeg -rtsp_transport tcp -i "${getFullRtspUrl()}" -c copy -f rtsp "rtsp://213.210.37.249:8554/cam1"`;
+                            navigator.clipboard.writeText(cmd);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                        >
+                          <Copy className="h-3 w-3" />
+                          <span>Copy Command</span>
+                        </Button>
+                      </div>
+                      <code className="block text-[10px] font-mono text-emerald-500 break-all select-all">
+                        ffmpeg -rtsp_transport tcp -i "{getFullRtspUrl()}" -c copy -f rtsp "rtsp://213.210.37.249:8554/cam1"
+                      </code>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 gap-1"
+                    onClick={() => {
+                      handleChange('directUrl', 'rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mp4');
+                      handleChange('hlsProxyUrl', '/hls/test/index.m3u8');
+                    }}
+                  >
+                    <Play className="h-3 w-3" />
+                    Load Public Test Stream
+                  </Button>
+                </div>
+
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Browsers cannot play RTSP directly. For live preview, configure an HLS proxy URL below or use VLC/FFplay for external viewing.
+                    Browsers cannot play RTSP directly. The system automatically converts streams to secure HTTPS HLS for live playback.
                   </AlertDescription>
                 </Alert>
 

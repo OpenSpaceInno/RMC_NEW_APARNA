@@ -68,9 +68,9 @@ runOnDisconnect:
 # Global settings -> API
 
 # Enable controlling the server through the API.
-api: no
+api: yes
 # Address of the API listener.
-apiAddress: 127.0.0.1:9997
+apiAddress: :9997
 
 ###############################################
 # Global settings -> Playback server
@@ -567,56 +567,56 @@ pathDefaults:
 paths:
   # Camera 1 - ANPR Camera (192.168.0.101)
   cam1:
-    source: rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream
+    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   cam1_sub:
-    source: rtsp://admin:Password@123@192.168.0.101:554/ch1/sub/av_stream
+    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/sub/av_stream
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   # Camera 2 - IP Camera (192.168.0.99)
   cam2:
-    source: rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101
+    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   cam2_sub:
-    source: rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/102
+    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/102
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   # Camera 3 - Exit / Rear Surveillance (192.168.0.99)
   cam3:
-    source: rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101
+    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   # Camera 4 / Exit 2 - New ANPR Camera (192.168.0.101)
   exit2:
-    source: rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream
+    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   cam4:
-    source: rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream
+    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   # Alias paths
   anpr:
-    source: rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream
+    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   ipcam:
-    source: rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101
+    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
     sourceProtocol: tcp
     sourceOnDemand: yes
 
   weighbridge:
-    source: rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101
+    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
     sourceProtocol: tcp
     sourceOnDemand: yes
 

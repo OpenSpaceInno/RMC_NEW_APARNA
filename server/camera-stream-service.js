@@ -253,6 +253,103 @@ export class CameraStreamService {
     };
   }
 
+  /**
+   * Determine if an IP is in RFC 1918 private range (e.g. 192.168.x.x)
+   */
+  isPrivateIp(ip) {
+    if (!ip) return false;
+    return (
+      ip.startsWith('192.168.') ||
+      ip.startsWith('10.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
+      ip === '127.0.0.1' ||
+      ip.toLowerCase() === 'localhost'
+    );
+  }
+
+  /**
+   * Safely encode special characters in RTSP credentials (e.g. '@' in password -> '%40')
+   */
+  sanitizeRtspUrl(url) {
+    if (!url || !url.startsWith('rtsp://')) return url;
+    try {
+      const withoutProto = url.slice(7);
+      const lastAt = withoutProto.lastIndexOf('@');
+      if (lastAt === -1) return url;
+
+      const userinfo = withoutProto.substring(0, lastAt);
+      const hostAndPath = withoutProto.substring(lastAt + 1);
+
+      const colonIdx = userinfo.indexOf(':');
+      if (colonIdx === -1) return url;
+
+      const user = userinfo.substring(0, colonIdx);
+      const pass = userinfo.substring(colonIdx + 1);
+
+      // If pass already contains '%', leave it, otherwise URL-encode '@' and other reserved chars
+      const cleanPass = pass.includes('%') ? pass : encodeURIComponent(pass);
+      return `rtsp://${user}:${cleanPass}@${hostAndPath}`;
+    } catch {
+      return url;
+    }
+  }
+
+  /**
+   * Dynamically update or add an active stream path in MediaMTX via its REST API
+   * @param {string} pathName
+   * @param {string} sourceUrl
+   */
+  async updateMediaMtxPath(pathName, sourceUrl) {
+    const targetHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
+    const apiPort = this.streamEndpoints.apiPort || 9997;
+    const cleanUrl = this.sanitizeRtspUrl(sourceUrl);
+
+    const payload = JSON.stringify({
+      source: cleanUrl || 'publisher',
+      sourceProtocol: 'tcp',
+      sourceOnDemand: true,
+      overridePublisher: true
+    });
+
+    const sendRequest = (method, urlPath) => {
+      return new Promise((resolve) => {
+        const req = http.request({
+          hostname: targetHost,
+          port: apiPort,
+          path: urlPath,
+          method: method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload)
+          },
+          timeout: 2500
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve({ status: res.statusCode, data }));
+        });
+
+        req.on('error', (err) => resolve({ status: 500, error: err.message }));
+        req.on('timeout', () => { req.destroy(); resolve({ status: 408, error: 'Timeout' }); });
+        req.write(payload);
+        req.end();
+      });
+    };
+
+    try {
+      // Attempt PATCH first (updates existing entry)
+      let res = await sendRequest('PATCH', `/v3/config/paths/patch/${pathName}`);
+      if (res.status === 404) {
+        // If path does not exist, add it
+        res = await sendRequest('POST', `/v3/config/paths/add/${pathName}`);
+      }
+      return { success: res.status >= 200 && res.status < 300, ...res };
+    } catch (e) {
+      console.warn(`MediaMTX API update failed for ${pathName}:`, e.message);
+      return { success: false, error: e.message };
+    }
+  }
+
 }
 
 export const cameraStreamService = new CameraStreamService();

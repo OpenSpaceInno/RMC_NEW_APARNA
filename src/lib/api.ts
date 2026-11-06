@@ -136,6 +136,19 @@ class ApiClient {
     }>(`/cameras/diagnostic/${ip}`);
   }
 
+  async testProbe(host: string, port: number = 554) {
+    return this.request<{
+      host: string;
+      port: number;
+      reachable: boolean;
+      latencyMs?: number;
+      error?: string;
+    }>('/cameras/test-probe', {
+      method: 'POST',
+      body: JSON.stringify({ host, port }),
+    });
+  }
+
   // RTSP configuration
   async getRTSPConfig(deviceId: string) {
     return this.request<any>(`/rtsp-config/${encodeURIComponent(deviceId)}`);

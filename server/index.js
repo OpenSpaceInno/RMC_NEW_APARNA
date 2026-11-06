@@ -345,6 +345,7 @@ app.get('/api/rtsp-config/:deviceId', async (req, res) => {
 });
 
 // Create or update RTSP config
+// Create or update RTSP config and dynamically sync with MediaMTX
 app.post('/api/rtsp-config', async (req, res) => {
   try {
     const {
@@ -352,7 +353,31 @@ app.post('/api/rtsp-config', async (req, res) => {
       stream_path, transport, reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url
     } = req.body;
     
-    // Check if config exists
+    // Map device_id to MediaMTX path name
+    const streamName = device_id === 'cam_gate_1' ? 'cam1' 
+      : device_id === 'cam_gate_2' ? 'cam2' 
+      : device_id === 'cam_gate_3' ? 'cam3' 
+      : (device_id || 'cam').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    // Determine target RTSP URL
+    let effectiveRtsp = direct_url || url || '';
+    if (!use_direct_url && username && password) {
+      const cleanPass = password.includes('%') ? password : encodeURIComponent(password);
+      // Fetch device IP if available
+      const [devRows] = await pool.query('SELECT ip_address FROM camera_devices WHERE device_id = ?', [device_id]);
+      const host = (devRows.length > 0 && devRows[0].ip_address) ? devRows[0].ip_address : '192.168.0.101';
+      effectiveRtsp = `rtsp://${username}:${cleanPass}@${host}:${port || 554}${stream_path || '/ch1/main/av_stream'}`;
+    }
+
+    const cleanRtspUrl = cameraStreamService.sanitizeRtspUrl(effectiveRtsp);
+
+    // Sync path dynamically to MediaMTX API
+    let mediaMtxResult = null;
+    if (enabled && cleanRtspUrl) {
+      mediaMtxResult = await cameraStreamService.updateMediaMtxPath(streamName, cleanRtspUrl);
+    }
+
+    // Check if config exists in MySQL
     const [existing] = await pool.query('SELECT device_id FROM device_rtsp_config WHERE device_id = ?', [device_id]);
     
     if (existing.length > 0) {
@@ -362,8 +387,8 @@ app.post('/api/rtsp-config', async (req, res) => {
          SET enabled = ?, url = ?, direct_url = ?, use_direct_url = ?, port = ?, username = ?, password = ?,
              stream_path = ?, transport = ?, reconnect_interval = ?, buffer_size = ?, low_latency_mode = ?, hls_proxy_url = ?
          WHERE device_id = ?`,
-        [enabled, url, direct_url, use_direct_url, port, username, password, stream_path, transport, 
-         reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url, device_id]
+        [enabled, url, cleanRtspUrl, use_direct_url, port, username, password, stream_path, transport, 
+         reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url || `/hls/${streamName}/index.m3u8`, device_id]
       );
     } else {
       // Insert new
@@ -372,12 +397,17 @@ app.post('/api/rtsp-config', async (req, res) => {
          (device_id, enabled, url, direct_url, use_direct_url, port, username, password, stream_path, 
           transport, reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [device_id, enabled, url, direct_url, use_direct_url, port, username, password, stream_path, 
-         transport, reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url]
+        [device_id, enabled, url, cleanRtspUrl, use_direct_url, port, username, password, stream_path, 
+         transport, reconnect_interval, buffer_size, low_latency_mode, hls_proxy_url || `/hls/${streamName}/index.m3u8`]
       );
     }
     
-    res.json({ success: true });
+    res.json({ 
+      success: true, 
+      streamName, 
+      cleanRtspUrl,
+      mediaMtxSynced: mediaMtxResult ? mediaMtxResult.success : false 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

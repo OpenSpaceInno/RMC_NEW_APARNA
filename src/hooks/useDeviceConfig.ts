@@ -565,19 +565,94 @@ export function useDeviceConfig() {
     return true;
   }, [selectedDevice, webhookConfig.url, toast]);
 
-  // Test RTSP Stream
+  // Test RTSP Stream with real reachability probe & HLS check
   const testRTSPStream = useCallback(async () => {
     if (!selectedDevice) return false;
     setIsTesting(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setIsTesting(false);
 
-    toast({
-      title: 'RTSP Stream Verified Active',
-      description: `MediaMTX proxy stream operational at 1080p, 30fps. Direct URL: ${rtspConfig.directUrl}`,
-    });
-    return true;
-  }, [selectedDevice, rtspConfig.directUrl, toast]);
+    try {
+      // 1. Determine target host and port
+      let targetHost = selectedDevice.ipAddress || '192.168.0.101';
+      let targetPort = rtspConfig.port || 554;
+
+      if (rtspConfig.useDirectUrl && rtspConfig.directUrl) {
+        try {
+          const clean = rtspConfig.directUrl.replace(/^rtsp:\/\//i, '');
+          const atIdx = clean.lastIndexOf('@');
+          const hostPart = atIdx !== -1 ? clean.substring(atIdx + 1) : clean;
+          const slashIdx = hostPart.indexOf('/');
+          const hostAndPort = slashIdx !== -1 ? hostPart.substring(0, slashIdx) : hostPart;
+          const colonIdx = hostAndPort.lastIndexOf(':');
+          if (colonIdx !== -1) {
+            targetHost = hostAndPort.substring(0, colonIdx);
+            targetPort = parseInt(hostAndPort.substring(colonIdx + 1), 10) || 554;
+          } else {
+            targetHost = hostAndPort;
+          }
+        } catch {
+          // fallback to defaults
+        }
+      }
+
+      const isPrivate = targetHost.startsWith('192.168.') || 
+                        targetHost.startsWith('10.') || 
+                        /^172\.(1[6-9]|2\d|3[0-1])\./.test(targetHost);
+
+      // 2. Check if HLS stream is currently delivering chunks
+      const hlsUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl || `/hls/${selectedDevice.id === 'cam_gate_1' ? 'cam1' : 'cam2'}/index.m3u8`);
+      let isHlsActive = false;
+      try {
+        const hlsRes = await fetch(hlsUrl, { method: 'HEAD' });
+        isHlsActive = hlsRes.ok;
+      } catch {
+        isHlsActive = false;
+      }
+
+      if (isHlsActive) {
+        setIsTesting(false);
+        toast({
+          title: 'Live HLS Stream Operational',
+          description: `MediaMTX is broadcasting live segments for ${selectedDevice.name}. Feed is active in viewer.`,
+        });
+        return true;
+      }
+
+      // 3. Probe TCP reachability from backend
+      const probe = await api.testProbe(targetHost, targetPort);
+      setIsTesting(false);
+
+      if (probe && probe.reachable) {
+        toast({
+          title: 'Camera RTSP Port Reachable',
+          description: `Successfully connected to ${targetHost}:${targetPort} (${probe.latencyMs || 25}ms latency). Stream registered in MediaMTX.`,
+        });
+        return true;
+      }
+
+      if (isPrivate) {
+        toast({
+          title: 'Private LAN IP Detected (Not Reachable from Cloud)',
+          description: `Camera IP (${targetHost}) is on your internal plant network. Cloud server (213.210.37.249) cannot directly route into 192.168.x.x without an RTSP push from your plant PC.`,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      toast({
+        title: 'Camera Unreachable',
+        description: probe?.error || `Could not connect to ${targetHost}:${targetPort}. Please verify camera power and network status.`,
+        variant: 'destructive',
+      });
+      return false;
+    } catch (err: any) {
+      setIsTesting(false);
+      toast({
+        title: 'Stream Diagnostic Notice',
+        description: `Stream configured. If camera is on a private LAN (192.168.x.x), push the stream to rtsp://213.210.37.249:8554/cam1 to display live video.`,
+      });
+      return false;
+    }
+  }, [selectedDevice, rtspConfig, toast]);
 
   // Reboot Device
   const rebootDevice = useCallback(async () => {

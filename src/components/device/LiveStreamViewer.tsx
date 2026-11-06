@@ -576,6 +576,15 @@ export function LiveStreamViewer({
           )}
         </div>
 
+        {streamStatus === 'simulated' && (
+          <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-1.5">
+            <span className="shrink-0 font-bold">ℹ️</span>
+            <span>
+              Showing simulated CCTV feed. Cloud server cannot reach local private IPs (192.168.x.x) directly. To stream your real camera, push the feed from your plant PC to <code className="text-emerald-400 font-mono">rtsp://213.210.37.249:8554/cam1</code>.
+            </span>
+          </div>
+        )}
+
         {/* RTSP Direct URL Copy Toolbar */}
         {rtspConfig.enabled && (
           <div className="p-2.5 rounded-lg bg-muted/60 border border-border/60 flex items-center justify-between text-xs">
