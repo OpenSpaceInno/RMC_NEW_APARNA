@@ -43,6 +43,7 @@ services:
       - "8888:8888" # HLS proxy
       - "8554:8554" # RTSP ingestion
       - "8889:8889" # WebRTC
+      - "1935:1935" # RTMP ingestion (direct camera firmware push without PC)
     networks:
       - rmc-network
 
