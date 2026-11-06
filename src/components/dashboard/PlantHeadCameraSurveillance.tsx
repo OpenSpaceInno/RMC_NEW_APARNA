@@ -28,7 +28,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
-import { resolveCameraHlsUrl } from '@/lib/cameraStream';
+import { resolveCameraHlsUrl, attachHlsStream } from '@/lib/cameraStream';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
 
@@ -54,7 +54,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Front Bumper / Plate OCR',
     ip: '192.168.0.101',
     location: 'Gate Entry',
-    hlsUrl: '/hls/cam1/index.m3u8',
+    hlsUrl: '/hls/live_cam1/index.m3u8',
     defaultPlate: 'MH 12 RN 4501',
     targetRoute: '/gate-monitor',
     showOnDashboard: true,
@@ -67,7 +67,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Toledo Platform & Wheel Deck',
     ip: '192.168.0.99',
     location: 'Weighbridge Bay 1',
-    hlsUrl: '/hls/cam2/index.m3u8',
+    hlsUrl: '/hls/live_cam2/index.m3u8',
     defaultPlate: 'KA 04 MM 9123',
     targetRoute: '/weighbridge',
     showOnDashboard: true,
@@ -80,7 +80,7 @@ const DEFAULT_CAMERAS: CameraTile[] = [
     role: 'Rear Chute & Outbound Barrier',
     ip: '192.168.0.99',
     location: 'Gate Exit',
-    hlsUrl: '/hls/cam3/index.m3u8',
+    hlsUrl: '/hls/live_cam2/index.m3u8',
     defaultPlate: 'MH 14 DE 7890',
     targetRoute: '/exit-verification',
     showOnDashboard: true,
@@ -149,11 +149,10 @@ export function PlantHeadCameraSurveillance() {
             }
 
             if (!hlsUrl) {
-              if (devId === 'cam_gate_1') hlsUrl = '/hls/cam1/index.m3u8';
-              else if (devId === 'cam_gate_2') hlsUrl = '/hls/cam2/index.m3u8';
-              else if (devId === 'cam_gate_3') hlsUrl = '/hls/cam3/index.m3u8';
+              if (devId === 'cam_gate_1') hlsUrl = '/hls/live_cam1/index.m3u8';
+              else if (devId === 'cam_gate_2' || devId === 'cam_gate_3') hlsUrl = '/hls/live_cam2/index.m3u8';
               else {
-                const safePath = devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `cam${index + 1}`;
+                const safePath = devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `live_cam1`;
                 hlsUrl = `/hls/${safePath}/index.m3u8`;
               }
             } else {
@@ -342,69 +341,36 @@ export function PlantHeadCameraSurveillance() {
 
   // Connect active camera streams
   useEffect(() => {
+    const unmountMap: Record<string, () => void> = {};
+
     activeCameras.forEach((cam) => {
       const camId = cam.id;
       const video = videoRefs.current[camId];
       if (!video) return;
 
       stopSimulation(camId);
-
-      if (hlsInstances.current[camId]) {
-        hlsInstances.current[camId]?.destroy();
-        hlsInstances.current[camId] = null;
-      }
-
       setStreamStatuses(prev => ({ ...prev, [camId]: 'connecting' }));
 
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          manifestLoadingTimeOut: 3000,
-          manifestLoadingMaxRetry: 1,
-          levelLoadingTimeOut: 3000,
-          fragLoadingTimeOut: 3000,
-        });
-
-        hlsInstances.current[camId] = hls;
-        hls.loadSource(cam.hlsUrl);
-        hls.attachMedia(video);
-
-        let isReady = false;
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          isReady = true;
+      const unmount = attachHlsStream({
+        video,
+        urlOrPair: cam.hlsUrl,
+        onConnected: () => {
+          stopSimulation(camId);
           setStreamStatuses(prev => ({ ...prev, [camId]: 'connected' }));
-          video.play().catch(() => {});
-        });
-
-        hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (!isReady || data.fatal || data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
-            hls.destroy();
-            hlsInstances.current[camId] = null;
-            startSimulation(camId);
-          }
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = cam.hlsUrl;
-        video.addEventListener('loadedmetadata', () => {
-          setStreamStatuses(prev => ({ ...prev, [camId]: 'connected' }));
-          video.play().catch(() => {});
-        });
-        video.addEventListener('error', () => {
+        },
+        onError: () => {
           startSimulation(camId);
-        });
-      } else {
-        startSimulation(camId);
-      }
+        },
+        timeoutMs: 12000,
+      });
+
+      unmountMap[camId] = unmount;
     });
 
     return () => {
       activeCameras.forEach((cam) => {
         stopSimulation(cam.id);
-        if (hlsInstances.current[cam.id]) {
-          hlsInstances.current[cam.id]?.destroy();
-          hlsInstances.current[cam.id] = null;
-        }
+        unmountMap[cam.id]?.();
       });
     };
   }, [activeCameras.length, refreshKey, startSimulation, stopSimulation]);

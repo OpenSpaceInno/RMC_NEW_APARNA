@@ -41,7 +41,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { resolveCameraHlsUrl } from '@/lib/cameraStream';
+import { resolveCameraHlsUrl, attachHlsStream } from '@/lib/cameraStream';
 import { WeightReading, Evidence } from '@/types/weighbridge';
 import { SapOutboundDelivery, SapExitSyncRequest, SapExitSyncResponse } from '@/types/sap';
 import { api } from '@/lib/api';
@@ -701,58 +701,31 @@ export function SapOutboundGateOutScreen({
   useEffect(() => {
     if (!isOpen) return;
 
-    const setupStream = (
-      videoEl: HTMLVideoElement | null, 
-      url: string, 
-      setActive: (v: boolean) => void, 
-      hlsRef: React.MutableRefObject<Hls | null>
-    ) => {
-      if (!videoEl) return;
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
+    const unmount1 = attachHlsStream({
+      video: cam1VideoRef.current,
+      urlOrPair: resolveCameraHlsUrl('', 'live_cam1'),
+      onConnected: () => setCam1HlsActive(true),
+      onError: () => setCam1HlsActive(false),
+    });
 
-      if (Hls.isSupported()) {
-        const hls = new Hls({ 
-          enableWorker: true, 
-          lowLatencyMode: true, 
-          backBufferLength: 30,
-          manifestLoadingTimeOut: 4000,
-          manifestLoadingMaxRetry: 2
-        });
-        hlsRef.current = hls;
-        hls.loadSource(url);
-        hls.attachMedia(videoEl);
+    const unmount2 = attachHlsStream({
+      video: cam2VideoRef.current,
+      urlOrPair: resolveCameraHlsUrl('', 'live_cam2'),
+      onConnected: () => setCam2HlsActive(true),
+      onError: () => setCam2HlsActive(false),
+    });
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          setActive(true);
-          videoEl.muted = true;
-          videoEl.play().catch(e => console.warn('Autoplay error:', e));
-        });
-
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) setActive(false);
-        });
-      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        videoEl.src = url;
-        videoEl.muted = true;
-        videoEl.play().catch(e => console.warn('Native HLS error:', e));
-        setActive(true);
-      }
-    };
-
-    setupStream(cam1VideoRef.current, resolveCameraHlsUrl('', 'cam1'), setCam1HlsActive, hls1Ref);
-    setupStream(cam2VideoRef.current, resolveCameraHlsUrl('', 'cam2'), setCam2HlsActive, hls2Ref);
-    setupStream(cam3VideoRef.current, resolveCameraHlsUrl('', 'cam3'), setCam3HlsActive, hls3Ref);
+    const unmount3 = attachHlsStream({
+      video: cam3VideoRef.current,
+      urlOrPair: resolveCameraHlsUrl('', 'live_cam2'),
+      onConnected: () => setCam3HlsActive(true),
+      onError: () => setCam3HlsActive(false),
+    });
 
     return () => {
-      hls1Ref.current?.destroy();
-      hls2Ref.current?.destroy();
-      hls3Ref.current?.destroy();
-      hls1Ref.current = null;
-      hls2Ref.current = null;
-      hls3Ref.current = null;
+      unmount1();
+      unmount2();
+      unmount3();
       setCam1HlsActive(false);
       setCam2HlsActive(false);
       setCam3HlsActive(false);

@@ -60,7 +60,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Front Bumper / Plate OCR',
     ip: '192.168.0.101',
     rtsp: 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
-    hls: '/hls/cam1/index.m3u8',
+    hls: '/hls/live_cam1/index.m3u8',
     resolution: '3K UHD (2880x1620)',
     defaultAngle: 'front',
     plateSample: 'MH 12 RN 4501'
@@ -72,7 +72,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Scale Platform & Wheel Deck',
     ip: '192.168.0.99',
     rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-    hls: '/hls/cam2/index.m3u8',
+    hls: '/hls/live_cam2/index.m3u8',
     resolution: '1080P FHD (1920x1080)',
     defaultAngle: 'side',
     plateSample: 'KA 04 MM 9123'
@@ -84,7 +84,7 @@ export const AVAILABLE_CAMERAS: CameraSource[] = [
     role: 'Chute Seal & Rear Plate',
     ip: '192.168.0.99',
     rtsp: 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-    hls: '/hls/cam3/index.m3u8',
+    hls: '/hls/live_cam2/index.m3u8',
     resolution: '1080P FHD (1920x1080)',
     defaultAngle: 'rear',
     plateSample: 'MH 14 DE 7890'
@@ -138,7 +138,7 @@ export function WeighbridgeLiveStream({
                 }
               } catch {}
 
-              const safePath = devId === 'cam_gate_1' ? 'cam1' : devId === 'cam_gate_2' ? 'cam2' : devId === 'cam_gate_3' ? 'cam3' : devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `cam${index + 1}`;
+              const safePath = devId === 'cam_gate_1' ? 'live_cam1' : devId === 'cam_gate_2' ? 'live_cam2' : devId === 'cam_gate_3' ? 'live_cam2' : devId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || `live_cam1`;
               hlsUrl = resolveCameraHlsUrl(hlsUrl, safePath);
               if (!rtspUrl) rtspUrl = `rtsp://admin:Password@123@${c.ip_address || '192.168.0.100'}:554/ch1/main/av_stream`;
 
@@ -513,15 +513,25 @@ export function WeighbridgeLiveStream({
     });
 
     let isConnected = false;
-    const defaultPath = screenIndex === 0 ? 'cam1' : screenIndex === 1 ? 'cam2' : 'cam3';
-    const streamSourceUrl = resolveCameraHlsUrl(cam.hls, defaultPath);
+    let triedAlternate = false;
+    const defaultPath = screenIndex === 0 ? 'live_cam1' : 'live_cam2';
+    const primaryUrl = resolveCameraHlsUrl(cam.hls, defaultPath);
+    const alternateUrl = primaryUrl.includes('live_cam1')
+      ? primaryUrl.replace('live_cam1', 'cam1')
+      : primaryUrl.includes('/cam1/')
+      ? primaryUrl.replace('/cam1/', '/live_cam1/')
+      : primaryUrl.includes('live_cam2')
+      ? primaryUrl.replace('live_cam2', 'cam2')
+      : primaryUrl.includes('/cam2/')
+      ? primaryUrl.replace('/cam2/', '/live_cam2/')
+      : null;
 
-    // Fast fallback timer: activate simulated CCTV if physical camera cannot connect within 3.5 seconds
+    // Graceful fallback timer: allow up to 12s for initial HLS stream handshake
     const fallbackTimer = setTimeout(() => {
       if (!isConnected && feedModes[screenIndex] === 'rtsp') {
         startTileSimulation(screenIndex);
       }
-    }, 3500);
+    }, 12000);
 
     const markConnected = () => {
       if (!isConnected) {
@@ -542,15 +552,18 @@ export function WeighbridgeLiveStream({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 30,
-        manifestLoadingTimeOut: 3500,
-        manifestLoadingMaxRetry: 2,
-        levelLoadingTimeOut: 3500,
-        fragLoadingTimeOut: 3500,
+        backBufferLength: 60,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 10000,
+        fragLoadingTimeOut: 10000,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+        }
       });
 
       hlsInstances.current[screenIndex] = hls;
-      hls.loadSource(streamSourceUrl);
+      hls.loadSource(primaryUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -562,15 +575,18 @@ export function WeighbridgeLiveStream({
         markConnected();
       });
 
-      hls.on(Hls.Events.ERROR, (event, data) => {
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!isConnected && alternateUrl && !triedAlternate) {
+          triedAlternate = true;
+          console.info(`Screen ${screenIndex} primary ${primaryUrl} not ready; checking alternate ${alternateUrl}...`);
+          hls.loadSource(alternateUrl);
+          return;
+        }
+
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              // Physical RTSP camera unreachable from cloud server -> fallback to simulation
-              clearTimeout(fallbackTimer);
-              hls.destroy();
-              hlsInstances.current[screenIndex] = null;
-              startTileSimulation(screenIndex);
+              hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               hls.recoverMediaError();
@@ -585,12 +601,18 @@ export function WeighbridgeLiveStream({
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamSourceUrl;
+      video.src = primaryUrl;
+      let triedAlt = false;
       video.addEventListener('loadedmetadata', () => {
         markConnected();
         video.play().catch(e => console.warn('Safari video autoplay:', e));
       });
       video.addEventListener('error', () => {
+        if (!triedAlt && alternateUrl) {
+          triedAlt = true;
+          video.src = alternateUrl;
+          return;
+        }
         clearTimeout(fallbackTimer);
         startTileSimulation(screenIndex);
       });
