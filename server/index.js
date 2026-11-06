@@ -66,6 +66,8 @@ app.use('/hls', (req, res) => {
   const mediamtxPort = process.env.MEDIAMTX_PORT || 8888;
   const targetPath = req.url; // e.g. /cam1/index.m3u8
 
+  const clientOrigin = req.headers.origin;
+
   const proxyReq = http.request(
     {
       hostname: mediamtxHost,
@@ -82,8 +84,25 @@ app.use('/hls', (req, res) => {
       if (responseHeaders.location && !responseHeaders.location.startsWith('/hls/')) {
         responseHeaders.location = `/hls${responseHeaders.location.startsWith('/') ? '' : '/'}${responseHeaders.location}`;
       }
-      responseHeaders['Access-Control-Allow-Origin'] = '*';
-      responseHeaders['Access-Control-Allow-Headers'] = '*';
+
+      // Rewrite Set-Cookie Path so browsers send cookies on /hls requests
+      if (responseHeaders['set-cookie']) {
+        const cookies = Array.isArray(responseHeaders['set-cookie']) 
+          ? responseHeaders['set-cookie'] 
+          : [responseHeaders['set-cookie']];
+        responseHeaders['set-cookie'] = cookies.map(c => 
+          c.replace(/Path=[^;]+/i, 'Path=/')
+        );
+      }
+
+      if (clientOrigin) {
+        responseHeaders['Access-Control-Allow-Origin'] = clientOrigin;
+        responseHeaders['Access-Control-Allow-Credentials'] = 'true';
+      } else {
+        responseHeaders['Access-Control-Allow-Origin'] = '*';
+      }
+      responseHeaders['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range, Authorization';
+      responseHeaders['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
       responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
 
       res.writeHead(proxyRes.statusCode, responseHeaders);

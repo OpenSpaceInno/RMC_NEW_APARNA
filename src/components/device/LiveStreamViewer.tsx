@@ -238,8 +238,9 @@ export function LiveStreamViewer({
     }
 
     // Try HLS playback via MediaMTX proxy
-    const rawHlsUrl = rtspConfig.hlsProxyUrl || `http://localhost:8888/${device.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}/index.m3u8`;
-    const hlsUrl = resolveCameraHlsUrl(rawHlsUrl);
+    const defaultStream = device.id === 'cam_gate_1' ? 'live_cam1' : device.id === 'cam_gate_2' ? 'live_cam2' : device.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const rawHlsUrl = rtspConfig.hlsProxyUrl || `/hls/${defaultStream}/index.m3u8`;
+    const hlsUrl = resolveCameraHlsUrl(rawHlsUrl, defaultStream);
     setStreamStatus('connecting');
     setErrorMessage(null);
 
@@ -255,13 +256,30 @@ export function LiveStreamViewer({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        manifestLoadingTimeOut: 3000,
-        manifestLoadingMaxRetry: 1,
-        levelLoadingTimeOut: 3000,
-        fragLoadingTimeOut: 3000,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 10000,
+        fragLoadingTimeOut: 10000,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+        }
       });
 
       hlsRef.current = hls;
+
+      // Smart fallback: try primary URL, then alternate alias
+      const alternateUrl = hlsUrl.includes('live_cam1')
+        ? hlsUrl.replace('live_cam1', 'cam1')
+        : hlsUrl.includes('/cam1/')
+        ? hlsUrl.replace('/cam1/', '/live_cam1/')
+        : hlsUrl.includes('live_cam2')
+        ? hlsUrl.replace('live_cam2', 'cam2')
+        : hlsUrl.includes('/cam2/')
+        ? hlsUrl.replace('/cam2/', '/live_cam2/')
+        : null;
+
+      let triedAlternate = false;
+
       hls.loadSource(hlsUrl);
       hls.attachMedia(video);
 
@@ -272,6 +290,12 @@ export function LiveStreamViewer({
       });
 
       hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (!isResolved && alternateUrl && !triedAlternate) {
+          triedAlternate = true;
+          console.info(`Primary stream ${hlsUrl} not ready; checking alternate ${alternateUrl}...`);
+          hls.loadSource(alternateUrl);
+          return;
+        }
         if (!isResolved || data.fatal) {
           console.warn(`HLS stream issue for ${device.name}; activating live simulation fallback:`, data.details);
           hls.destroy();
@@ -280,7 +304,7 @@ export function LiveStreamViewer({
         }
       });
 
-      // Quick timeout fallback: if not connected within 3.5s, switch to simulation
+      // Quick timeout fallback: allow up to 12s for initial HLS stream handshake
       const fallbackTimer = setTimeout(() => {
         if (!isResolved) {
           console.info(`HLS timeout for ${device.name}; switching to zero-latency simulation.`);
@@ -288,7 +312,7 @@ export function LiveStreamViewer({
           hlsRef.current = null;
           startSimulation();
         }
-      }, 3500);
+      }, 12000);
 
       return () => {
         clearTimeout(fallbackTimer);
@@ -577,11 +601,22 @@ export function LiveStreamViewer({
         </div>
 
         {streamStatus === 'simulated' && (
-          <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-1.5">
-            <span className="shrink-0 font-bold">ℹ️</span>
-            <span>
-              Showing simulated CCTV feed. Cloud server cannot reach local private IPs (192.168.x.x) directly. To stream your real camera, push the feed from your plant PC to <code className="text-emerald-400 font-mono">rtsp://213.210.37.249:8554/cam1</code>.
-            </span>
+          <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-center justify-between gap-2">
+            <div className="flex items-start gap-1.5">
+              <span className="shrink-0 font-bold">ℹ️</span>
+              <span>
+                Showing simulated feed. Push from plant PC to <code className="text-emerald-400 font-mono">rtsp://213.210.37.249:8554/{device?.id === 'cam_gate_1' ? 'live_cam1' : 'live_cam2'}</code>.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs bg-amber-500/20 border-amber-500/40 hover:bg-amber-500/30 text-amber-200 shrink-0 gap-1"
+              onClick={handleReconnect}
+            >
+              <RefreshCw className="h-3 w-3" />
+              Connect Live
+            </Button>
           </div>
         )}
 

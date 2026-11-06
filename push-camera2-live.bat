@@ -1,0 +1,25 @@
+@echo off
+title Push Camera 2 (192.168.0.99) to Aparna RMC Cloud
+echo ==========================================================
+echo  Aparna RMC - Live Streaming Bridge for Camera 2 (IP Cam)
+echo  Source: rtsp://192.168.0.99:554/Streaming/Channels/101
+echo  Target: rtsp://213.210.37.249:8554/live_cam2
+echo ==========================================================
+echo.
+
+set FFMPEG_BIN=ffmpeg
+where ffmpeg >nul 2>nul
+if %errorlevel% neq 0 (
+    if exist "%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg.Shared_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build-shared\bin\ffmpeg.exe" (
+        set "FFMPEG_BIN=%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg.Shared_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build-shared\bin\ffmpeg.exe"
+    )
+)
+
+:stream_loop
+echo [%date% %time%] Connecting to Camera 2 and streaming to cloud server...
+"%FFMPEG_BIN%" -rtsp_transport tcp -i "rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101" -c copy -an -rtsp_transport tcp -f rtsp "rtsp://213.210.37.249:8554/live_cam2"
+
+echo.
+echo [%date% %time%] Camera session ended or network reconnected. Restarting in 2 seconds...
+timeout /t 2 /nobreak >nul
+goto stream_loop

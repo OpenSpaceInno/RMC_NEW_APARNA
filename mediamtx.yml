@@ -159,7 +159,7 @@ hlsServerKey: server.key
 hlsServerCert: server.crt
 # By default, HLS is generated only when requested by a user.
 # This option allows to generate it always, avoiding the delay between request and generation.
-hlsAlwaysRemux: no
+hlsAlwaysRemux: yes
 # Variant of the HLS protocol to use. Available options are:
 # * mpegts - uses MPEG-TS segments, for maximum compatibility.
 # * fmp4 - uses fragmented MP4 segments, more efficient.
@@ -569,11 +569,17 @@ paths:
   cam1:
     source: publisher
 
+  live_cam1:
+    source: publisher
+
   cam1_sub:
     source: publisher
 
   # Camera 2 - IP Camera (Accepts RTSP push from plant or dynamic pull)
   cam2:
+    source: publisher
+
+  live_cam2:
     source: publisher
 
   cam2_sub:

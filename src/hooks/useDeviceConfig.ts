@@ -121,7 +121,7 @@ const defaultWebhookConfig: WebhookConfig = {
 const defaultRTSPConfig: RTSPConfig = {
   enabled: true,
   url: '',
-  directUrl: 'rtsp://admin:Password@123@192.168.0.100:554/ch1/main/av_stream',
+  directUrl: 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
   useDirectUrl: true,
   port: 554,
   username: 'admin',
@@ -131,7 +131,7 @@ const defaultRTSPConfig: RTSPConfig = {
   reconnectInterval: 5,
   bufferSize: 1024,
   lowLatencyMode: true,
-  hlsProxyUrl: '/hls/cam1/index.m3u8',
+  hlsProxyUrl: '/hls/live_cam1/index.m3u8',
 };
 
 export function useDeviceConfig() {
@@ -206,10 +206,9 @@ export function useDeviceConfig() {
 
   // Load configurations for a given device
   const loadDeviceConfig = useCallback(async (deviceId: string, deviceIp?: string) => {
-    // 1. RTSP Config
-    const safeStreamName = deviceId === 'cam_gate_1' ? 'cam1' : deviceId === 'cam_gate_2' ? 'cam2' : deviceId === 'cam_gate_3' ? 'cam3' : deviceId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'cam';
+    const safeStreamName = deviceId === 'cam_gate_1' ? 'live_cam1' : deviceId === 'cam_gate_2' ? 'live_cam2' : deviceId === 'cam_gate_3' ? 'cam3' : deviceId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'cam';
     const fallbackHls = resolveCameraHlsUrl(`/hls/${safeStreamName}/index.m3u8`);
-    const fallbackRtsp = `rtsp://admin:Password@123@${deviceIp || '192.168.0.168'}:554/ch1/main/av_stream`;
+    const fallbackRtsp = `rtsp://admin:Password@123@${deviceIp || (deviceId === 'cam_gate_1' ? '192.168.0.101' : '192.168.0.99')}:554/ch1/main/av_stream`;
 
     try {
       const serverRtsp = await api.getRTSPConfig(deviceId);
@@ -599,20 +598,28 @@ export function useDeviceConfig() {
                         /^172\.(1[6-9]|2\d|3[0-1])\./.test(targetHost);
 
       // 2. Check if HLS stream is currently delivering chunks
-      const hlsUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl || `/hls/${selectedDevice.id === 'cam_gate_1' ? 'cam1' : 'cam2'}/index.m3u8`);
+      const primaryUrl = resolveCameraHlsUrl(rtspConfig.hlsProxyUrl || `/hls/${selectedDevice.id === 'cam_gate_1' ? 'live_cam1' : 'live_cam2'}/index.m3u8`);
+      const alternateUrl = resolveCameraHlsUrl(`/hls/${selectedDevice.id === 'cam_gate_1' ? 'cam1' : 'cam2'}/index.m3u8`);
+      const checkUrls = [primaryUrl, alternateUrl].filter(Boolean);
+
       let isHlsActive = false;
-      try {
-        const hlsRes = await fetch(hlsUrl, { method: 'HEAD' });
-        isHlsActive = hlsRes.ok;
-      } catch {
-        isHlsActive = false;
+      for (const testUrl of checkUrls) {
+        try {
+          const hlsRes = await fetch(testUrl, { method: 'GET', credentials: 'include' });
+          if (hlsRes.status === 200 || hlsRes.status === 302) {
+            isHlsActive = true;
+            break;
+          }
+        } catch {
+          // continue checking alternate
+        }
       }
 
       if (isHlsActive) {
         setIsTesting(false);
         toast({
-          title: 'Live HLS Stream Operational',
-          description: `MediaMTX is broadcasting live segments for ${selectedDevice.name}. Feed is active in viewer.`,
+          title: 'Live Camera Stream Active!',
+          description: `MediaMTX is broadcasting live video for ${selectedDevice.name}. Feed is visible in viewer.`,
         });
         return true;
       }
@@ -631,9 +638,9 @@ export function useDeviceConfig() {
 
       if (isPrivate) {
         toast({
-          title: 'Private LAN IP Detected (Not Reachable from Cloud)',
-          description: `Camera IP (${targetHost}) is on your internal plant network. Cloud server (213.210.37.249) cannot directly route into 192.168.x.x without an RTSP push from your plant PC.`,
-          variant: 'destructive',
+          title: 'Plant Push Bridge Needed',
+          description: `Camera IP (${targetHost}) is on your local plant LAN. Start push-camera1-live.bat or push-all-cameras.bat on your plant PC to broadcast this camera to cloud.`,
+          variant: 'default',
         });
         return false;
       }
