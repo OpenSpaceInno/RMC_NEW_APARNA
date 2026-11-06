@@ -14,12 +14,18 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-echo [2] Checking Windows Auto-Start Task:
-schtasks /query /tn "AparnaRMC_CameraBridge" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo  * [INSTALLED] Windows Task "AparnaRMC_CameraBridge" is registered to auto-start on boot.
+echo [2] Checking Windows Auto-Start Configuration:
+if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\AparnaRMC_CameraBridge.lnk" (
+    echo  * [INSTALLED] Windows Startup auto-run shortcut is ACTIVE in:
+    echo    %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+    echo    (Streams will auto-start completely silently every time Windows boots)
 ) else (
-    echo  * [NOT INSTALLED] Background service task is not yet installed. Run install-plant-bridge-service.bat
+    schtasks /query /tn "AparnaRMC_CameraBridge" >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo  * [INSTALLED] Windows Task "AparnaRMC_CameraBridge" is registered.
+    ) else (
+        echo  * [NOT INSTALLED] Run install-autostart.vbs to enable 24/7 boot auto-start.
+    )
 )
 
 echo.
