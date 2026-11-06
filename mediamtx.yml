@@ -565,60 +565,40 @@ pathDefaults:
 # for example "~^(test1|test2)$" will match both "test1" and "test2",
 # for example "~^prefix" will match all paths that start with "prefix".
 paths:
-  # Camera 1 - ANPR Camera (192.168.0.101)
+  # Camera 1 - ANPR Camera (Accepts RTSP push from plant or dynamic pull)
   cam1:
-    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   cam1_sub:
-    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/sub/av_stream
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
-  # Camera 2 - IP Camera (192.168.0.99)
+  # Camera 2 - IP Camera (Accepts RTSP push from plant or dynamic pull)
   cam2:
-    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   cam2_sub:
-    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/102
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
-  # Camera 3 - Exit / Rear Surveillance (192.168.0.99)
+  # Camera 3 - Exit / Rear Surveillance
   cam3:
-    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
-  # Camera 4 / Exit 2 - New ANPR Camera (192.168.0.101)
+  # Camera 4 / Exit 2 - New ANPR Camera
   exit2:
-    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   cam4:
-    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   # Alias paths
   anpr:
-    source: rtsp://admin:Password%40123@192.168.0.101:554/ch1/main/av_stream
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   ipcam:
-    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   weighbridge:
-    source: rtsp://admin:Password%40123@192.168.0.99:554/Streaming/Channels/101
-    sourceProtocol: tcp
-    sourceOnDemand: yes
+    source: publisher
 
   # Test stream (if needed)
   test:

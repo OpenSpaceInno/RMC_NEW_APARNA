@@ -371,10 +371,26 @@ app.post('/api/rtsp-config', async (req, res) => {
 
     const cleanRtspUrl = cameraStreamService.sanitizeRtspUrl(effectiveRtsp);
 
+    // Extract host to check if it's a private LAN IP
+    let host = '192.168.0.101';
+    try {
+      const clean = cleanRtspUrl.replace(/^rtsp:\/\//i, '');
+      const atIdx = clean.lastIndexOf('@');
+      const hostPart = atIdx !== -1 ? clean.substring(atIdx + 1) : clean;
+      const slashIdx = hostPart.indexOf('/');
+      const hostPort = slashIdx !== -1 ? hostPart.substring(0, slashIdx) : hostPart;
+      const colonIdx = hostPort.lastIndexOf(':');
+      host = colonIdx !== -1 ? hostPort.substring(0, colonIdx) : hostPort;
+    } catch {}
+
+    const isPrivate = cameraStreamService.isPrivateIp(host);
+    // For private LAN cameras, MediaMTX must be in publisher mode so plant PC can push to rtsp://<server>:8554/<stream>
+    const mediaMtxSource = isPrivate ? 'publisher' : cleanRtspUrl;
+
     // Sync path dynamically to MediaMTX API
     let mediaMtxResult = null;
-    if (enabled && cleanRtspUrl) {
-      mediaMtxResult = await cameraStreamService.updateMediaMtxPath(streamName, cleanRtspUrl);
+    if (enabled) {
+      mediaMtxResult = await cameraStreamService.updateMediaMtxPath(streamName, mediaMtxSource);
     }
 
     // Check if config exists in MySQL
