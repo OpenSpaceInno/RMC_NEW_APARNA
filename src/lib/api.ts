@@ -1082,6 +1082,7 @@ class ApiClient {
     cameraName?: string;
     cameraIp?: string;
     gateType?: string;
+    targetUser?: string;
   }) {
     return this.request<{
       success: boolean;
@@ -1091,6 +1092,7 @@ class ApiClient {
       sftpUrl: string;
       httpProxyUrl: string;
       webAdminUrl: string;
+      targetUser?: string;
       sizeBytes: number;
       angle: string;
       vehicleRegNo: string;

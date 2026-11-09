@@ -23,13 +23,15 @@ import Hls from "hls.js";
 
 interface CapturedEvidence {
   id: string;
-  angle: 'front' | 'platform' | 'cabin';
+  angle: 'front' | 'back' | 'top' | 'platform' | 'cabin';
   cameraName: string;
   imageUrl: string;
   plate: string;
   weightKg: number;
   weightMt: string;
   timestamp: string;
+  filename?: string;
+  targetUser?: string;
   remoteFtpPath?: string;
 }
 
@@ -141,49 +143,61 @@ const Weighbridge = () => {
     }
   }, []);
 
-  // Button 2: Capture Vehicles (captures all camera photos and uploads each to FTP)
+  // Button 2: Capture Vehicles (captures 3 camera photos: Front, Back, Top and uploads to user Sarath's FTP)
   const handleCaptureVehicles = async () => {
     setIsCapturing(true);
-    const timestampStr = new Date().toLocaleTimeString();
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const timestampStr = now.toLocaleTimeString();
     const weightMtStr = (currentWeight.weight / 1000).toFixed(2);
     const currentPlate = vehicleNumber || "TN88F4089";
     const newItems: CapturedEvidence[] = [];
 
+    // Formatted filenames for 3 cameras
+    const cam1Filename = `Front_${timestamp}.jpg`;
+    const cam2Filename = `Back_${timestamp}.jpg`;
+    const cam3Filename = `Top_${timestamp}.jpg`;
+
     try {
-      // 1. Capture Camera 1 (ANPR Front View)
-      let cam1Img = ftpEvidence?.imageUrl || "";
-      if (!cam1Img) {
-        if (cam1VideoRef.current && cam1HlsActive) {
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(cam1VideoRef.current, 0, 0, 640, 360);
-              cam1Img = canvas.toDataURL('image/jpeg', 0.85);
-            }
-          } catch {}
-        }
-        if (!cam1Img && cam1CanvasRef.current) {
-          cam1Img = cam1CanvasRef.current.toDataURL('image/jpeg', 0.85);
-        }
+      // 1. Capture Camera 1 (Front View / ANPR Plate)
+      let cam1Img = "";
+      if (cam1VideoRef.current && cam1HlsActive) {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 640;
+          canvas.height = 360;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(cam1VideoRef.current, 0, 0, 640, 360);
+            cam1Img = canvas.toDataURL('image/jpeg', 0.85);
+          }
+        } catch {}
+      }
+      if (!cam1Img && cam1CanvasRef.current) {
+        cam1Img = cam1CanvasRef.current.toDataURL('image/jpeg', 0.85);
+      }
+      if (!cam1Img && ftpEvidence?.imageUrl) {
+        cam1Img = ftpEvidence.imageUrl;
       }
 
       if (cam1Img) {
         newItems.push({
           id: `cap-${Date.now()}-1`,
           angle: 'front',
-          cameraName: 'Camera 1: ANPR Front Camera',
+          cameraName: 'Camera 1: Front Camera (ANPR)',
           imageUrl: cam1Img,
           plate: currentPlate,
           weightKg: currentWeight.weight,
           weightMt: weightMtStr,
           timestamp: timestampStr,
+          filename: cam1Filename,
+          targetUser: 'sarath',
+          remoteFtpPath: `/${cam1Filename}`,
         });
       }
 
-      // 2. Capture Camera 2 (Platform Bay Deck)
+      // 2. Capture Camera 2 (Back View / Scale Platform)
       let cam2Img = "";
       if (cam2VideoRef.current && cam2HlsActive) {
         try {
@@ -204,17 +218,20 @@ const Weighbridge = () => {
       if (cam2Img) {
         newItems.push({
           id: `cap-${Date.now()}-2`,
-          angle: 'platform',
-          cameraName: 'Camera 2: Scale Platform Bay',
+          angle: 'back',
+          cameraName: 'Camera 2: Back Camera (Scale Platform)',
           imageUrl: cam2Img,
           plate: currentPlate,
           weightKg: currentWeight.weight,
           weightMt: weightMtStr,
           timestamp: timestampStr,
+          filename: cam2Filename,
+          targetUser: 'sarath',
+          remoteFtpPath: `/${cam2Filename}`,
         });
       }
 
-      // 3. Capture Camera 3 (Cabin / Chute)
+      // 3. Capture Camera 3 (Top View / Cabin & Chute)
       let cam3Img = "";
       if (cam3VideoRef.current && cam3HlsActive) {
         try {
@@ -235,30 +252,35 @@ const Weighbridge = () => {
       if (cam3Img) {
         newItems.push({
           id: `cap-${Date.now()}-3`,
-          angle: 'cabin',
-          cameraName: 'Camera 3: Driver Cabin & Chute',
+          angle: 'top',
+          cameraName: 'Camera 3: Top Camera (Driver Cabin & Chute)',
           imageUrl: cam3Img,
           plate: currentPlate,
           weightKg: currentWeight.weight,
           weightMt: weightMtStr,
           timestamp: timestampStr,
+          filename: cam3Filename,
+          targetUser: 'sarath',
+          remoteFtpPath: `/${cam3Filename}`,
         });
       }
 
-      // Upload ALL captured photos directly into the FTP location
+      // Upload ALL 3 captured photos directly into user Sarath's FTP location
       const uploadPromises: Promise<any>[] = [];
 
       if (cam1Img) {
         uploadPromises.push(
           api.uploadToFtp({
             image: cam1Img,
+            filename: cam1Filename,
+            targetUser: 'sarath',
             vehicleRegNo: currentPlate,
             angle: 'front',
             weight: currentWeight.weight,
-            cameraName: 'Camera 1: ANPR Front Camera',
+            cameraName: 'Camera 1: Front Camera',
             cameraIp: '192.168.0.100',
           }).catch(err => {
-            console.warn('Camera 1 FTP upload warning:', err);
+            console.warn('Camera 1 (Front) FTP upload warning:', err);
             return null;
           })
         );
@@ -268,13 +290,15 @@ const Weighbridge = () => {
         uploadPromises.push(
           api.uploadToFtp({
             image: cam2Img,
+            filename: cam2Filename,
+            targetUser: 'sarath',
             vehicleRegNo: currentPlate,
-            angle: 'platform',
+            angle: 'back',
             weight: currentWeight.weight,
-            cameraName: 'Camera 2: Scale Platform Bay',
+            cameraName: 'Camera 2: Back Camera',
             cameraIp: '192.168.0.99',
           }).catch(err => {
-            console.warn('Camera 2 FTP upload warning:', err);
+            console.warn('Camera 2 (Back) FTP upload warning:', err);
             return null;
           })
         );
@@ -284,13 +308,15 @@ const Weighbridge = () => {
         uploadPromises.push(
           api.uploadToFtp({
             image: cam3Img,
+            filename: cam3Filename,
+            targetUser: 'sarath',
             vehicleRegNo: currentPlate,
-            angle: 'cabin',
+            angle: 'top',
             weight: currentWeight.weight,
-            cameraName: 'Camera 3: Driver Cabin & Chute',
+            cameraName: 'Camera 3: Top Camera',
             cameraIp: '192.168.0.99',
           }).catch(err => {
-            console.warn('Camera 3 FTP upload warning:', err);
+            console.warn('Camera 3 (Top) FTP upload warning:', err);
             return null;
           })
         );
@@ -302,9 +328,9 @@ const Weighbridge = () => {
       // Update local gallery
       setCapturedEvidenceList(prev => [...newItems, ...prev]);
 
-      toast.success("Captured & Uploaded Photos to FTP!", {
-        description: `Successfully uploaded ${newItems.length} photos into FTP location for ${currentPlate}`,
-        duration: 4500,
+      toast.success("Captured & Uploaded Photos to Sarath's FTP!", {
+        description: `Uploaded 3 files: ${cam1Filename}, ${cam2Filename}, ${cam3Filename} to FTP location for user: sarath`,
+        duration: 5500,
       });
     } catch (err: any) {
       toast.error("Capture Warning: " + (err.message || "Failed to upload to FTP location"));
@@ -560,7 +586,7 @@ const Weighbridge = () => {
               }`}
             >
               <Video className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
-              <span>Camera 1</span>
+              <span>Camera 1 (Front)</span>
             </Button>
 
             <Button
@@ -575,7 +601,7 @@ const Weighbridge = () => {
               }`}
             >
               <Scale className="h-3.5 w-3.5 mr-1.5 text-blue-600" />
-              <span>Camera 2</span>
+              <span>Camera 2 (Back)</span>
             </Button>
 
             <Button
@@ -590,18 +616,18 @@ const Weighbridge = () => {
               }`}
             >
               <Truck className="h-3.5 w-3.5 mr-1.5 text-purple-600" />
-              <span>Camera 3</span>
+              <span>Camera 3 (Top)</span>
             </Button>
           </div>
         </div>
 
         {/* Camera Feeds Display: Responsive Grid or Focused Single Camera */}
         <div className={selectedCamera === 'all' ? "grid grid-cols-1 md:grid-cols-3 gap-3.5" : "flex flex-col items-center"}>
-          {/* CAM 01: ANPR Plate Camera */}
+          {/* CAM 01: ANPR Front Camera */}
           <div className={`space-y-1.5 w-full ${selectedCamera === 'cam1' || selectedCamera === 'all' ? 'block' : 'hidden'} ${selectedCamera === 'cam1' ? 'max-w-4xl mx-auto' : ''}`}>
             <div className="flex justify-between items-center text-[11px]">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-slate-800">CAM 01: ANPR Cam 1</span>
+                <span className="font-bold text-slate-800">CAM 01: Front Camera (ANPR)</span>
                 <span className="font-mono text-[10px] text-slate-500 font-semibold">(192.168.0.100)</span>
               </div>
               <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-700 border-emerald-300 flex items-center gap-1">
@@ -661,11 +687,11 @@ const Weighbridge = () => {
             </div>
           </div>
 
-          {/* CAM 02: Scale Deck Camera */}
+          {/* CAM 02: Scale Deck Camera (Back View) */}
           <div className={`space-y-1.5 w-full ${selectedCamera === 'cam2' || selectedCamera === 'all' ? 'block' : 'hidden'} ${selectedCamera === 'cam2' ? 'max-w-4xl mx-auto' : ''}`}>
             <div className="flex justify-between items-center text-[11px]">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-slate-800">CAM 02: Scale Platform Bay</span>
+                <span className="font-bold text-slate-800">CAM 02: Back Camera (Scale Platform Bay)</span>
                 <span className="font-mono text-[10px] text-slate-500 font-semibold">(192.168.0.99)</span>
               </div>
               <Badge variant="outline" className={`text-[9px] border-blue-300 flex items-center gap-1 ${cam2HlsActive ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-blue-50 text-blue-700'}`}>
@@ -697,12 +723,12 @@ const Weighbridge = () => {
             </div>
           </div>
 
-          {/* CAM 03: Driver & Chute */}
+          {/* CAM 03: Top Camera (Driver Cabin & Chute) */}
           <div className={`space-y-1.5 w-full ${selectedCamera === 'cam3' || selectedCamera === 'all' ? 'block' : 'hidden'} ${selectedCamera === 'cam3' ? 'max-w-4xl mx-auto' : ''}`}>
             <div className="flex justify-between items-center text-[11px]">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-slate-800">CAM 03: Driver & Chute Seal</span>
-                <span className="font-mono text-[10px] text-slate-500 font-semibold">(Side View)</span>
+                <span className="font-bold text-slate-800">CAM 03: Top Camera (Driver Cabin & Chute)</span>
+                <span className="font-mono text-[10px] text-slate-500 font-semibold">(Top View)</span>
               </div>
               <Badge variant="outline" className={`text-[9px] border-purple-300 ${cam3HlsActive ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-purple-50 text-purple-700'}`}>
                 {cam3HlsActive ? 'LIVE STREAM' : 'SEAL OK'}
@@ -771,7 +797,7 @@ const Weighbridge = () => {
                 onClick={handleCaptureVehicles}
                 disabled={isCapturing}
                 className="h-12 sm:h-14 px-6 text-sm sm:text-base font-bold bg-slate-950 hover:bg-slate-900 text-amber-300 border-2 border-amber-400/50 shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2.5 cursor-pointer rounded-lg active:scale-98"
-                title="Capture photos from Camera 1, 2, and 3 and upload directly into the FTP location"
+                title="Capture 3 camera photos (Front_Timestamp.jpg, Back_Timestamp.jpg, Top_Timestamp.jpg) and upload into FTP location for user Sarath"
               >
                 <Camera className={`h-5 w-5 text-amber-400 ${isCapturing ? 'animate-pulse' : ''}`} />
                 <span>{isCapturing ? 'Uploading to FTP...' : 'Capture Vehicles'}</span>
@@ -786,7 +812,7 @@ const Weighbridge = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span>Captured Vehicles & Uploaded to FTP ({capturedEvidenceList.length} photos)</span>
+                <span>Captured Vehicles & Uploaded to Sarath's FTP ({capturedEvidenceList.length} photos)</span>
               </div>
               <Button
                 size="sm"
@@ -820,11 +846,17 @@ const Weighbridge = () => {
                         <span>View Large</span>
                       </button>
                     </div>
-                    <Badge className="absolute top-1.5 left-1.5 text-[9px] bg-slate-900/80 text-amber-300 border-none px-1.5 py-0">
-                      {item.angle.toUpperCase()} • FTP UPLOADED
+                    <Badge className="absolute top-1.5 left-1.5 text-[9px] bg-slate-900/85 text-amber-300 border-none px-1.5 py-0 flex items-center gap-1 font-mono">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      <span>{item.angle.toUpperCase()} • FTP (sarath)</span>
                     </Badge>
                   </div>
-                  <div className="p-2.5 text-[11px] space-y-1">
+                  <div className="p-2.5 text-[11px] space-y-1.5">
+                    {item.filename && (
+                      <div className="font-mono text-[10px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 truncate font-semibold" title={item.filename}>
+                        📁 {item.filename}
+                      </div>
+                    )}
                     <div className="font-mono font-bold text-slate-900 flex justify-between">
                       <span>{item.plate}</span>
                       <span className="text-emerald-700 font-semibold">{item.weightMt} MT</span>

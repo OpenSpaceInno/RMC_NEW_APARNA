@@ -63,31 +63,28 @@ class FtpService {
     sessionId = null,
     cameraName = 'Weighbridge Camera',
     cameraIp = null,
-    gateType = null
+    gateType = null,
+    targetUser = 'sarath'
   }) {
     if (!buffer || buffer.length === 0) {
       throw new Error('Image buffer is empty');
     }
 
-    const token = await this.getUserToken();
+    const isSarath = !targetUser || targetUser.toLowerCase() === 'sarath' || targetUser === SFTPGO_CAMERA_USER;
+    const authUser = isSarath ? SFTPGO_CAMERA_USER : (targetUser || SFTPGO_USER);
+    const authPass = isSarath ? SFTPGO_CAMERA_PASS : SFTPGO_PASS;
+
+    const token = await this.getUserToken(authUser, authPass);
     const cleanAngle = (angle || 'overview').toLowerCase();
 
-    // Determine filename following Entry_Gate_IP_DDMMYY convention or fallback
+    // Determine filename following Front/Back/Top or convention
     let finalFilename = filename;
     if (!finalFilename) {
-      const isEntry = gateType === 'entry' || (cameraName && /gate|entry/i.test(cameraName));
-      if (isEntry) {
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2, '0');
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const yy = String(now.getFullYear()).slice(-2);
-        const ddmmyy = `${dd}${mm}${yy}`;
-        const ip = cameraIp || '192.168.0.100';
-        finalFilename = `Entry_Gate_${ip}_${ddmmyy}.jpg`;
-      } else {
-        const cleanReg = (vehicleRegNo || 'VEH').replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-        finalFilename = `WB_${cleanReg}_${cleanAngle}_${Date.now()}.jpg`;
-      }
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const prefix = cleanAngle === 'front' ? 'Front' : (cleanAngle === 'back' || cleanAngle === 'rear' || cleanAngle === 'platform') ? 'Back' : (cleanAngle === 'top' || cleanAngle === 'cabin') ? 'Top' : 'Evidence';
+      finalFilename = `${prefix}_${timestamp}.jpg`;
     } else {
       // Ensure image file extension is present
       if (!/\.(jpg|jpeg|png)$/i.test(finalFilename)) {
@@ -95,9 +92,10 @@ class FtpService {
       }
     }
 
-    const remotePath = `/weighbridge/${finalFilename}`;
+    // Remote path: if user Sarath, upload into their root '/' folder; if aparna_rmc, upload into '/weighbridge/'
+    const remotePath = isSarath ? `/${finalFilename}` : `/weighbridge/${finalFilename}`;
 
-    console.log(`📤 Uploading image to SFTPGo: ${remotePath} (${(buffer.length / 1024).toFixed(1)} KB)`);
+    console.log(`📤 Uploading image to SFTPGo for user [${authUser}]: ${remotePath} (${(buffer.length / 1024).toFixed(1)} KB)`);
 
     const uploadUrl = `${SFTPGO_API_URL}/user/files/upload?path=${encodeURIComponent(remotePath)}`;
     const uploadRes = await fetch(uploadUrl, {
@@ -112,21 +110,29 @@ class FtpService {
 
     if (!uploadRes.ok) {
       const errText = await uploadRes.text();
-      throw new Error(`SFTPGo upload failed (${uploadRes.status}): ${errText}`);
+      throw new Error(`SFTPGo upload failed for ${authUser} (${uploadRes.status}): ${errText}`);
     }
 
     const result = await uploadRes.json().catch(() => ({ message: 'Uploaded' }));
-    console.log(`✅ Upload complete to SFTPGo: ${remotePath}`, result);
+    console.log(`✅ Upload complete to SFTPGo for user [${authUser}]: ${remotePath}`, result);
 
     const ftpUrl = `ftp://${SFTPGO_HOST}:${SFTPGO_FTP_PORT}${remotePath}`;
-    const sftpUrl = `sftp://${SFTPGO_USER}@${SFTPGO_HOST}:${SFTPGO_SFTP_PORT}${remotePath}`;
-    const httpProxyUrl = `/api/ftp/file?path=${encodeURIComponent(remotePath)}`;
+    const sftpUrl = `sftp://${authUser}@${SFTPGO_HOST}:${SFTPGO_SFTP_PORT}${remotePath}`;
+    const httpProxyUrl = `/api/ftp/file?path=${encodeURIComponent(remotePath)}&user=${authUser}`;
 
     // Store evidence metadata in MySQL database
     try {
       const isEntry = gateType === 'entry' || (cameraName && /gate|entry/i.test(cameraName));
       const eventId = sessionId || (isEntry ? `GATE_EV_${Date.now()}` : `WB_TEL_${Date.now()}`);
-      const validAngle = ['front', 'side', 'rear', 'plate', 'overview', 'exit'].includes(cleanAngle) ? cleanAngle : 'overview';
+      
+      // Map angles to valid ENUM ('front', 'side', 'rear', 'plate', 'overview')
+      let mappedAngle = cleanAngle;
+      if (cleanAngle === 'back') mappedAngle = 'rear';
+      else if (cleanAngle === 'top') mappedAngle = 'overview';
+      else if (cleanAngle === 'platform') mappedAngle = 'overview';
+      else if (cleanAngle === 'cabin') mappedAngle = 'side';
+      const validAngle = ['front', 'side', 'rear', 'plate', 'overview'].includes(mappedAngle) ? mappedAngle : 'overview';
+
       const source = isEntry ? 'gate_monitor' : 'weighbridge_telemetry';
       const cameraId = cameraIp ? `cam_${cameraIp}` : (isEntry ? 'cam_gate_1' : 'weighbridge');
 
@@ -149,7 +155,6 @@ class FtpService {
       console.warn('FTP Service: DB evidence log warning:', dbErr.message);
     }
 
-
     return {
       success: true,
       filename: finalFilename,
@@ -157,6 +162,7 @@ class FtpService {
       ftpUrl,
       sftpUrl,
       httpProxyUrl,
+      targetUser: authUser,
       webAdminUrl: SFTPGO_WEB_ADMIN_URL,
       sizeBytes: buffer.length,
       angle: cleanAngle,
