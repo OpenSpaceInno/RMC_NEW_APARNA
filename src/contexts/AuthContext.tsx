@@ -222,54 +222,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.login(credentials);
       if (res?.success && res.user) {
         if (res.user.roleId === 'admin') {
-          res.user.roleName = 'Admin / Plant Manager';
-          res.user.plantId = res.user.plantId || 'all';
-          res.user.plantName = res.user.plantName || 'All Plants (Global Admin)';
+          res.user.roleName = res.user.roleName || 'Admin / Plant Manager';
           if (res.user.role) res.user.role.name = 'Admin / Plant Manager';
         } else if (res.user.roleId === 'weighbridge_operator') {
-          res.user.roleName = 'Weighbridge In-charge / Operator';
-          res.user.plantId = res.user.plantId || 'PL01';
-          res.user.plantName = res.user.plantName || 'Plant 01 • Shamshabad Central';
+          res.user.roleName = res.user.roleName || 'Weighbridge In-charge / Operator';
           if (res.user.role) res.user.role.name = 'Weighbridge In-charge / Operator';
         }
 
-        // Set active plant based on user login
-        const chosenPlantId = credentials.plantId || res.user.plantId;
-        if (chosenPlantId && chosenPlantId !== 'all') {
-          const match = plants.find(p => p.id === chosenPlantId);
-          if (match) {
-            setActivePlant(match);
-            localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
-          }
+        // Set active plant based on the verified user's assigned plant terminal
+        const designatedPlantId = res.user.plantId && res.user.plantId !== 'all' 
+          ? res.user.plantId 
+          : (credentials.plantId || 'PL01');
+
+        const match = plants.find(p => p.id === designatedPlantId) || plants.find(p => p.id === credentials.plantId);
+        if (match) {
+          setActivePlant(match);
+          localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
+          res.user.plantId = match.id;
+          res.user.plantName = match.name;
         }
 
         saveAuthSession(res.user, res.token);
         toast.success(`Welcome, ${res.user.name}!`, {
-          description: `Logged in as ${res.user.roleName || res.user.role?.name} at ${res.user.plantName || 'Plant Terminal'}`,
+          description: `Operating Terminal: ${res.user.plantName || match?.name || designatedPlantId}`,
         });
         return true;
       } else {
-        toast.error('Authentication failed', {
-          description: res?.message || 'Invalid credentials',
-        });
-        return false;
+        const errorMsg = res?.message || 'Invalid login details';
+        toast.error(errorMsg);
+        throw new Error(errorMsg);
       }
     } catch (err: any) {
-      // Offline fallback demo authentication for the 2 allowed roles
-      const isWeighRole = credentials.roleId === 'weighbridge_operator' || credentials.username === 'weigh_op';
-      const targetUser = isWeighRole ? DEFAULT_WEIGHBRIDGE_USER : DEFAULT_ADMIN_USER;
-      const targetToken = isWeighRole ? 'demo_token_weigh' : 'demo_token_admin';
-
-      const chosenPlantId = credentials.plantId || (isWeighRole ? 'PL01' : 'PL01');
-      const match = plants.find(p => p.id === chosenPlantId) || plants[0] || DEFAULT_PLANTS[0];
-      setActivePlant(match);
-      localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
-
-      saveAuthSession(targetUser, targetToken);
-      toast.success(`Welcome, ${targetUser.name}!`, {
-        description: `Logged in as ${targetUser.roleName} • ${match.name}`,
-      });
-      return true;
+      console.error('Login error:', err);
+      toast.error(err?.message || 'Invalid login details');
+      throw err;
     } finally {
       setIsLoading(false);
     }

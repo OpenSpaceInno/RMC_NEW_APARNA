@@ -3,34 +3,194 @@ import { pool } from './db.js';
 
 dotenv.config();
 
-const SFTPGO_API_URL = process.env.SFTPGO_API_URL || 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/api/v2';
-const SFTPGO_HOST = process.env.SFTPGO_HOST || '213.210.37.249';
-const SFTPGO_ADMIN_USER = process.env.SFTPGO_ADMIN_USER || 'ftpsuperadmin';
-const SFTPGO_ADMIN_PASS = process.env.SFTPGO_ADMIN_PASS || 'Demo#Test@2026';
-const SFTPGO_USER = process.env.SFTPGO_USER || 'aparna_rmc';
-const SFTPGO_PASS = process.env.SFTPGO_PASS || 'Rmc@Aparna#2026';
-const SFTPGO_CAMERA_USER = process.env.SFTPGO_CAMERA_USER || 'sarath';
-const SFTPGO_CAMERA_PASS = process.env.SFTPGO_CAMERA_PASS || 'Password@123';
-const SFTPGO_FTP_PORT = process.env.SFTPGO_FTP_PORT || '2121';
-const SFTPGO_SFTP_PORT = process.env.SFTPGO_SFTP_PORT || '2222';
-const SFTPGO_WEB_ADMIN_URL = process.env.SFTPGO_WEB_ADMIN_URL || 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/web/admin/users';
-
 class FtpService {
   constructor() {
     this.userTokens = {};
+    this.config = {
+      host: process.env.SFTPGO_HOST || '213.210.37.249',
+      apiUrl: (process.env.SFTPGO_API_URL || 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/api/v2').replace(/\/+$/, ''),
+      adminUser: process.env.SFTPGO_ADMIN_USER || 'ftpsuperadmin',
+      adminPass: process.env.SFTPGO_ADMIN_PASS || 'Demo#Test@2026',
+      username: process.env.SFTPGO_USER || 'aparna_rmc',
+      password: process.env.SFTPGO_PASS || 'Rmc@Aparna#2026',
+      cameraUser: process.env.SFTPGO_CAMERA_USER || 'sarath',
+      cameraPass: process.env.SFTPGO_CAMERA_PASS || 'Password@123',
+      ftpPort: Number(process.env.SFTPGO_FTP_PORT) || 2121,
+      sftpPort: Number(process.env.SFTPGO_SFTP_PORT) || 2222,
+      remoteFolder: '/weighbridge',
+      webAdminUrl: process.env.SFTPGO_WEB_ADMIN_URL || 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/web/admin/users'
+    };
+    this.initFromDatabase();
+  }
+
+  // Load persistent FTP config from database if present
+  async initFromDatabase() {
+    try {
+      const [rows] = await pool.query('SELECT * FROM device_ftp_config WHERE id = "default" LIMIT 1');
+      if (rows && rows.length > 0) {
+        const row = rows[0];
+        this.config = {
+          host: row.host || this.config.host,
+          apiUrl: (row.api_url || this.config.apiUrl).replace(/\/+$/, ''),
+          adminUser: row.admin_user || this.config.adminUser,
+          adminPass: row.admin_password || this.config.adminPass,
+          username: row.username || this.config.username,
+          password: row.password || this.config.password,
+          cameraUser: row.camera_user || this.config.cameraUser,
+          cameraPass: row.camera_password || this.config.cameraPass,
+          ftpPort: Number(row.ftp_port) || this.config.ftpPort,
+          sftpPort: Number(row.sftp_port) || this.config.sftpPort,
+          remoteFolder: row.remote_folder || this.config.remoteFolder,
+          webAdminUrl: row.web_admin_url || this.config.webAdminUrl
+        };
+        console.log(`📡 FTP Service: Loaded persistent configuration from database [host: ${this.config.host}]`);
+      }
+    } catch (err) {
+      console.warn('FTP Service: Could not read device_ftp_config from db, using defaults:', err.message);
+    }
+  }
+
+  // Return the active configuration
+  getConfig() {
+    return {
+      host: this.config.host,
+      apiUrl: this.config.apiUrl,
+      ftpPort: this.config.ftpPort,
+      sftpPort: this.config.sftpPort,
+      username: this.config.username,
+      password: this.config.password,
+      cameraUser: this.config.cameraUser,
+      cameraPassword: this.config.cameraPass,
+      adminUser: this.config.adminUser,
+      adminPassword: this.config.adminPass,
+      remoteFolder: this.config.remoteFolder,
+      webAdminUrl: this.config.webAdminUrl
+    };
+  }
+
+  // Update configuration in-memory and in database
+  async updateConfig(newConfig) {
+    if (!newConfig) throw new Error('Configuration object is required');
+
+    if (newConfig.host) this.config.host = newConfig.host.trim();
+    if (newConfig.apiUrl) this.config.apiUrl = newConfig.apiUrl.trim().replace(/\/+$/, '');
+    if (newConfig.ftpPort) this.config.ftpPort = Number(newConfig.ftpPort);
+    if (newConfig.sftpPort) this.config.sftpPort = Number(newConfig.sftpPort);
+    if (newConfig.username) this.config.username = newConfig.username.trim();
+    if (newConfig.password) this.config.password = newConfig.password;
+    if (newConfig.cameraUser) this.config.cameraUser = newConfig.cameraUser.trim();
+    if (newConfig.cameraPassword) this.config.cameraPass = newConfig.cameraPassword;
+    if (newConfig.adminUser) this.config.adminUser = newConfig.adminUser.trim();
+    if (newConfig.adminPassword) this.config.adminPass = newConfig.adminPassword;
+    if (newConfig.remoteFolder) this.config.remoteFolder = newConfig.remoteFolder.trim();
+    if (newConfig.webAdminUrl) this.config.webAdminUrl = newConfig.webAdminUrl.trim();
+
+    // Invalidate cached user access tokens
+    this.userTokens = {};
+
+    try {
+      await pool.query(`
+        INSERT INTO device_ftp_config (
+          id, host, api_url, ftp_port, sftp_port, username, password,
+          camera_user, camera_password, admin_user, admin_password,
+          remote_folder, web_admin_url
+        ) VALUES (
+          'default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ) ON DUPLICATE KEY UPDATE
+          host = VALUES(host),
+          api_url = VALUES(api_url),
+          ftp_port = VALUES(ftp_port),
+          sftp_port = VALUES(sftp_port),
+          username = VALUES(username),
+          password = VALUES(password),
+          camera_user = VALUES(camera_user),
+          camera_password = VALUES(camera_password),
+          admin_user = VALUES(admin_user),
+          admin_password = VALUES(admin_password),
+          remote_folder = VALUES(remote_folder),
+          web_admin_url = VALUES(web_admin_url),
+          updated_at = NOW()
+      `, [
+        this.config.host,
+        this.config.apiUrl,
+        this.config.ftpPort,
+        this.config.sftpPort,
+        this.config.username,
+        this.config.password,
+        this.config.cameraUser,
+        this.config.cameraPass,
+        this.config.adminUser,
+        this.config.adminPass,
+        this.config.remoteFolder,
+        this.config.webAdminUrl
+      ]);
+      console.log('✅ FTP Service: Configuration persisted to MySQL table device_ftp_config');
+    } catch (err) {
+      console.error('FTP Service: Failed to persist configuration to database:', err.message);
+    }
+
+    return this.getConfig();
+  }
+
+  // Test connection to SFTPGo server with given or current credentials
+  async testConnection(testConfig = null) {
+    const targetUrl = (testConfig?.apiUrl || this.config.apiUrl).replace(/\/+$/, '');
+    const user = testConfig?.username || this.config.username;
+    const pass = testConfig?.password || this.config.password;
+    const start = Date.now();
+
+    try {
+      const basicAuth = Buffer.from(`${user}:${pass}`).toString('base64');
+      const res = await fetch(`${targetUrl}/user/token`, {
+        headers: {
+          Authorization: `Basic ${basicAuth}`
+        }
+      });
+
+      const latencyMs = Date.now() - start;
+
+      if (!res.ok) {
+        const errText = await res.text();
+        return {
+          success: false,
+          latencyMs,
+          status: res.status,
+          error: `SFTPGo authentication failed (${res.status}): ${errText}`
+        };
+      }
+
+      const data = await res.json();
+      return {
+        success: true,
+        latencyMs,
+        tokenExpiry: data.expires_at,
+        host: testConfig?.host || this.config.host,
+        user,
+        message: `Connected successfully to SFTPGo API (${latencyMs}ms)`
+      };
+    } catch (err) {
+      return {
+        success: false,
+        latencyMs: Date.now() - start,
+        error: `Connection error: ${err.message}`
+      };
+    }
   }
 
   // Get or refresh User Access Token from SFTPGo for a specific user
-  async getUserToken(username = SFTPGO_USER, password = SFTPGO_PASS) {
+  async getUserToken(username, password) {
+    const authUser = username || this.config.username;
+    const authPass = password || (authUser === this.config.cameraUser ? this.config.cameraPass : this.config.password);
+
     const now = Date.now();
-    const cached = this.userTokens[username];
+    const cached = this.userTokens[authUser];
     if (cached && cached.expiresAt > now + 60000) {
       return cached.token;
     }
 
     try {
-      const basicAuth = Buffer.from(`${username}:${password}`).toString('base64');
-      const res = await fetch(`${SFTPGO_API_URL}/user/token`, {
+      const basicAuth = Buffer.from(`${authUser}:${authPass}`).toString('base64');
+      const res = await fetch(`${this.config.apiUrl}/user/token`, {
         headers: {
           Authorization: `Basic ${basicAuth}`
         }
@@ -38,17 +198,17 @@ class FtpService {
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`SFTPGo user auth failed for ${username} (${res.status}): ${errText}`);
+        throw new Error(`SFTPGo user auth failed for ${authUser} (${res.status}): ${errText}`);
       }
 
       const data = await res.json();
-      this.userTokens[username] = {
+      this.userTokens[authUser] = {
         token: data.access_token,
         expiresAt: new Date(data.expires_at).getTime()
       };
       return data.access_token;
     } catch (err) {
-      console.error(`FTP Service: Error getting user token for ${username}:`, err.message);
+      console.error(`FTP Service: Error getting user token for ${authUser}:`, err.message);
       throw err;
     }
   }
@@ -70,9 +230,9 @@ class FtpService {
       throw new Error('Image buffer is empty');
     }
 
-    const isSarath = !targetUser || targetUser.toLowerCase() === 'sarath' || targetUser === SFTPGO_CAMERA_USER;
-    const authUser = isSarath ? SFTPGO_CAMERA_USER : (targetUser || SFTPGO_USER);
-    const authPass = isSarath ? SFTPGO_CAMERA_PASS : SFTPGO_PASS;
+    const isCameraUser = !targetUser || targetUser.toLowerCase() === 'sarath' || targetUser === this.config.cameraUser;
+    const authUser = isCameraUser ? this.config.cameraUser : (targetUser || this.config.username);
+    const authPass = isCameraUser ? this.config.cameraPass : this.config.password;
 
     const token = await this.getUserToken(authUser, authPass);
     const cleanAngle = (angle || 'overview').toLowerCase();
@@ -86,18 +246,17 @@ class FtpService {
       const prefix = cleanAngle === 'front' ? 'Front' : (cleanAngle === 'back' || cleanAngle === 'rear' || cleanAngle === 'platform') ? 'Back' : (cleanAngle === 'top' || cleanAngle === 'cabin') ? 'Top' : 'Evidence';
       finalFilename = `${prefix}_${timestamp}.jpg`;
     } else {
-      // Ensure image file extension is present
       if (!/\.(jpg|jpeg|png)$/i.test(finalFilename)) {
         finalFilename = `${finalFilename}.jpg`;
       }
     }
 
-    // Remote path: if user Sarath, upload into their root '/' folder; if aparna_rmc, upload into '/weighbridge/'
-    const remotePath = isSarath ? `/${finalFilename}` : `/weighbridge/${finalFilename}`;
+    const remoteBase = isCameraUser ? '' : (this.config.remoteFolder || '/weighbridge').replace(/\/+$/, '');
+    const remotePath = `${remoteBase}/${finalFilename}`.replace(/\/+/g, '/');
 
     console.log(`📤 Uploading image to SFTPGo for user [${authUser}]: ${remotePath} (${(buffer.length / 1024).toFixed(1)} KB)`);
 
-    const uploadUrl = `${SFTPGO_API_URL}/user/files/upload?path=${encodeURIComponent(remotePath)}`;
+    const uploadUrl = `${this.config.apiUrl}/user/files/upload?path=${encodeURIComponent(remotePath)}`;
     const uploadRes = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
@@ -116,43 +275,47 @@ class FtpService {
     const result = await uploadRes.json().catch(() => ({ message: 'Uploaded' }));
     console.log(`✅ Upload complete to SFTPGo for user [${authUser}]: ${remotePath}`, result);
 
-    const ftpUrl = `ftp://${SFTPGO_HOST}:${SFTPGO_FTP_PORT}${remotePath}`;
-    const sftpUrl = `sftp://${authUser}@${SFTPGO_HOST}:${SFTPGO_SFTP_PORT}${remotePath}`;
+    const ftpUrl = `ftp://${this.config.host}:${this.config.ftpPort}${remotePath}`;
+    const sftpUrl = `sftp://${authUser}@${this.config.host}:${this.config.sftpPort}${remotePath}`;
     const httpProxyUrl = `/api/ftp/file?path=${encodeURIComponent(remotePath)}&user=${authUser}`;
 
     // Store evidence metadata in MySQL database
     try {
       const isEntry = gateType === 'entry' || (cameraName && /gate|entry/i.test(cameraName));
-      const eventId = sessionId || (isEntry ? `GATE_EV_${Date.now()}` : `WB_TEL_${Date.now()}`);
-      
-      // Map angles to valid ENUM ('front', 'side', 'rear', 'plate', 'overview')
-      let mappedAngle = cleanAngle;
-      if (cleanAngle === 'back') mappedAngle = 'rear';
-      else if (cleanAngle === 'top') mappedAngle = 'overview';
-      else if (cleanAngle === 'platform') mappedAngle = 'overview';
-      else if (cleanAngle === 'cabin') mappedAngle = 'side';
-      const validAngle = ['front', 'side', 'rear', 'plate', 'overview'].includes(mappedAngle) ? mappedAngle : 'overview';
-
-      const source = isEntry ? 'gate_monitor' : 'weighbridge_telemetry';
-      const cameraId = cameraIp ? `cam_${cameraIp}` : (isEntry ? 'cam_gate_1' : 'weighbridge');
-
-      // Ensure parent ANPR event exists for foreign key constraint
-      await pool.query(
-        `INSERT INTO anpr_events 
-         (event_id, plant_id, camera_id, vehicle_reg_no, confidence, source, vehicle_type, timestamp)
-         VALUES (?, 'plant_001', ?, ?, 0.98, ?, 'Transit Mixer', NOW())
-         ON DUPLICATE KEY UPDATE vehicle_reg_no = VALUES(vehicle_reg_no)`,
-        [eventId, cameraId, vehicleRegNo || 'UNKNOWN', source]
-      );
+      const eventType = isEntry ? 'INBOUND_ENTRY' : 'WEIGHBRIDGE_CAPTURE';
+      const eventId = `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
       await pool.query(
-        `INSERT INTO anpr_evidence 
-         (event_id, evidence_type, url, thumbnail_url, angle, timestamp, file_size, mime_type)
-         VALUES (?, 'image', ?, ?, ?, NOW(), ?, 'image/jpeg')`,
-        [eventId, ftpUrl, httpProxyUrl, validAngle, buffer.length]
-      );
+        `INSERT INTO anpr_evidence (
+          id, event_id, evidence_type, url, thumbnail_url, angle,
+          timestamp, metadata, file_size
+        ) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
+        [
+          `EVD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          eventId,
+          'IMAGE',
+          httpProxyUrl,
+          httpProxyUrl,
+          cleanAngle,
+          JSON.stringify({
+            vehicleRegNo,
+            weight,
+            sessionId,
+            cameraName,
+            cameraIp,
+            gateType,
+            ftpUrl,
+            sftpUrl,
+            remotePath,
+            targetUser: authUser
+          }),
+          buffer.length
+        ]
+      ).catch((err) => {
+        console.warn('Could not save evidence record to database:', err.message);
+      });
     } catch (dbErr) {
-      console.warn('FTP Service: DB evidence log warning:', dbErr.message);
+      console.warn('DB evidence logging error:', dbErr.message);
     }
 
     return {
@@ -162,8 +325,8 @@ class FtpService {
       ftpUrl,
       sftpUrl,
       httpProxyUrl,
+      webAdminUrl: this.config.webAdminUrl,
       targetUser: authUser,
-      webAdminUrl: SFTPGO_WEB_ADMIN_URL,
       sizeBytes: buffer.length,
       angle: cleanAngle,
       vehicleRegNo,
@@ -176,8 +339,8 @@ class FtpService {
   // Read and parse all ANPR plate image files from camera FTP directory
   async getFtpAnprPlates(limit = 25) {
     try {
-      const token = await this.getUserToken(SFTPGO_CAMERA_USER, SFTPGO_CAMERA_PASS);
-      const dirsRes = await fetch(`${SFTPGO_API_URL}/user/dirs?path=%2F`, {
+      const token = await this.getUserToken(this.config.cameraUser, this.config.cameraPass);
+      const dirsRes = await fetch(`${this.config.apiUrl}/user/dirs?path=%2F`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -189,7 +352,6 @@ class FtpService {
       const plates = [];
 
       for (const item of list) {
-        // Pattern: Unkown_<VEHICLE_NO>(CH1_YYYY_MM_DD_HHMMSS).jpg or Unknown_<VEHICLE_NO>(...)
         const match = item.name.match(/^un\w*?_([^(.]+)(?:\(([^_]+)_(\d{4})_(\d{2})_(\d{2})_(\d{2})(\d{2})(\d{2})\))?/i);
         if (match) {
           const rawPlate = match[1].trim().toUpperCase();
@@ -205,14 +367,12 @@ class FtpService {
             channel,
             timestamp: fileTime,
             lastModified: item.last_modified,
-            imageUrl: `/api/ftp/file?user=${SFTPGO_CAMERA_USER}&path=${encodeURIComponent('/' + item.name)}`
+            imageUrl: `/api/ftp/file?user=${this.config.cameraUser}&path=${encodeURIComponent('/' + item.name)}`
           });
         }
       }
 
-      // Sort newest first by lastModified
       plates.sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime());
-
       return plates.slice(0, limit);
     } catch (err) {
       console.error('FTP Service: Error fetching ANPR plates from FTP:', err.message);
@@ -228,21 +388,20 @@ class FtpService {
 
   // Retrieve file buffer from remote SFTPGo server
   async getFile(remotePath, requestedUser = null) {
-    // Determine target user
     let targetUser = requestedUser;
     if (!targetUser) {
       if (/un\w*?_/i.test(remotePath) || !remotePath.startsWith('/weighbridge')) {
-        targetUser = SFTPGO_CAMERA_USER;
+        targetUser = this.config.cameraUser;
       } else {
-        targetUser = SFTPGO_USER;
+        targetUser = this.config.username;
       }
     }
 
-    const targetPass = targetUser === SFTPGO_CAMERA_USER ? SFTPGO_CAMERA_PASS : SFTPGO_PASS;
+    const targetPass = targetUser === this.config.cameraUser ? this.config.cameraPass : this.config.password;
     const token = await this.getUserToken(targetUser, targetPass);
 
     const cleanPath = remotePath.startsWith('/') ? remotePath : `/${remotePath}`;
-    const downloadUrl = `${SFTPGO_API_URL}/user/files?path=${encodeURIComponent(cleanPath)}`;
+    const downloadUrl = `${this.config.apiUrl}/user/files?path=${encodeURIComponent(cleanPath)}`;
 
     let res = await fetch(downloadUrl, {
       headers: {
@@ -251,7 +410,7 @@ class FtpService {
     });
 
     if (!res.ok && !cleanPath.endsWith('.jpg')) {
-      const fallbackUrl = `${SFTPGO_API_URL}/user/files?path=${encodeURIComponent(cleanPath + '.jpg')}`;
+      const fallbackUrl = `${this.config.apiUrl}/user/files?path=${encodeURIComponent(cleanPath + '.jpg')}`;
       const fallbackRes = await fetch(fallbackUrl, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -277,20 +436,22 @@ class FtpService {
       const token = await this.getUserToken();
       return {
         online: true,
-        host: SFTPGO_HOST,
-        ftpPort: SFTPGO_FTP_PORT,
-        sftpPort: SFTPGO_SFTP_PORT,
-        username: SFTPGO_USER,
-        targetFolder: '/weighbridge',
-        webAdminUrl: SFTPGO_WEB_ADMIN_URL,
+        host: this.config.host,
+        apiUrl: this.config.apiUrl,
+        ftpPort: String(this.config.ftpPort),
+        sftpPort: String(this.config.sftpPort),
+        username: this.config.username,
+        targetFolder: this.config.remoteFolder,
+        webAdminUrl: this.config.webAdminUrl,
         message: 'Connected to SFTPGo remote server'
       };
     } catch (err) {
       return {
         online: false,
-        host: SFTPGO_HOST,
+        host: this.config.host,
+        apiUrl: this.config.apiUrl,
         error: err.message,
-        webAdminUrl: SFTPGO_WEB_ADMIN_URL,
+        webAdminUrl: this.config.webAdminUrl,
         message: 'Failed to connect to SFTPGo'
       };
     }

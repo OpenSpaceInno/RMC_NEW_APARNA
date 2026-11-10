@@ -18,6 +18,8 @@ export const formatUserWithRole = (userRow, roleRow) => {
     status: userRow.status,
     avatar: userRow.avatar,
     lastLogin: userRow.last_login,
+    plantId: userRow.plant_id || (userRow.role_id === 'admin' ? 'all' : 'PL01'),
+    plantName: userRow.plant_name || (userRow.role_id === 'admin' ? 'All Plants (Global Admin)' : 'Plant 01 • Shamshabad Central'),
     roleId: roleRow ? roleRow.id : userRow.role_id,
     roleName: roleRow ? roleRow.name : userRow.role_name,
     roleColor: normColor,
@@ -55,7 +57,7 @@ export const requireAuth = (req, res, next) => {
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { username, password, roleId } = req.body;
+    const { username, password, roleId, plantId } = req.body;
     const isProd = process.env.NODE_ENV === 'production';
 
     let userQuery = '';
@@ -91,12 +93,12 @@ router.post('/login', async (req, res) => {
 
     const [rows] = await pool.query(userQuery, params);
     if (rows.length === 0) {
-      return res.status(401).json({ error: 'User not found or account is inactive' });
+      return res.status(401).json({ error: 'Invalid login details' });
     }
 
     const user = rows[0];
 
-    // Cryptographic Password Verification
+    // 1. Cryptographic Security Password Verification
     if (!roleId) {
       const isValid = verifyPassword(password, user.password_hash);
       if (!isValid) {
@@ -110,7 +112,40 @@ router.post('/login', async (req, res) => {
             `Failed authentication attempt for username '${user.username}'`
           ]
         ).catch(() => {});
-        return res.status(401).json({ error: 'Invalid username or password' });
+        return res.status(401).json({ error: 'Invalid login details' });
+      }
+    }
+
+    // 2. Operating Plant Terminal Verification
+    // All 3 details (Operating Plant Terminal, Operator ID / Username, and Security Password) must match
+    if (plantId) {
+      const userPlantId = user.plant_id || 'PL01';
+      // If user is restricted to a specific plant terminal (not global 'all'), enforce exact match
+      if (userPlantId !== 'all' && userPlantId !== plantId) {
+        let assignedPlantName = user.plant_name;
+        if (!assignedPlantName) {
+          const [pRows] = await pool.query('SELECT name FROM plants WHERE id = ?', [userPlantId]).catch(() => [[]]);
+          if (pRows && pRows.length > 0) assignedPlantName = pRows[0].name;
+        }
+
+        let requestedPlantName = plantId;
+        const [rRows] = await pool.query('SELECT name FROM plants WHERE id = ?', [plantId]).catch(() => [[]]);
+        if (rRows && rRows.length > 0) requestedPlantName = rRows[0].name;
+
+        await pool.query(
+          `INSERT INTO audit_logs (id, module, action, entity_id, entity_type, performed_by, details, severity)
+           VALUES (?, 'AUTH', 'LOGIN_TERMINAL_MISMATCH', ?, 'USER', ?, ?, 'warning')`,
+          [
+            `AUD-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+            user.id,
+            JSON.stringify({ userId: user.id, username: user.username, selectedPlant: plantId, assignedPlant: userPlantId }),
+            `Operating Plant Terminal mismatch: Operator '${user.username}' attempted to log into '${requestedPlantName}' but is designated to '${assignedPlantName || userPlantId}'`
+          ]
+        ).catch(() => {});
+
+        return res.status(401).json({ 
+          error: 'Invalid login details' 
+        });
       }
     }
 
@@ -131,6 +166,9 @@ router.post('/login', async (req, res) => {
     };
 
     const formatted = formatUserWithRole(user, roleObj);
+    // Explicitly bind the session to the verified operating plant terminal
+    const effectivePlantId = (user.plant_id && user.plant_id !== 'all') ? user.plant_id : (plantId || 'PL01');
+    formatted.plantId = effectivePlantId;
 
     // Audit log successful login
     await pool.query(
@@ -139,8 +177,8 @@ router.post('/login', async (req, res) => {
       [
         `AUD-${Date.now()}-${Math.floor(Math.random()*1000)}`,
         user.id,
-        JSON.stringify({ userId: user.id, username: user.username, role: formatted.roleName }),
-        `Operator '${user.name}' signed in as '${formatted.roleName}' [Shift: ${user.shift || 'General'}]`
+        JSON.stringify({ userId: user.id, username: user.username, role: formatted.roleName, plantId: formatted.plantId }),
+        `Operator '${user.name}' signed in as '${formatted.roleName}' at Terminal [${formatted.plantName || formatted.plantId}]`
       ]
     ).catch(() => {});
 
@@ -152,7 +190,9 @@ router.post('/login', async (req, res) => {
       roleId: formatted.roleId,
       roleName: formatted.roleName,
       department: user.department,
-      shift: user.shift
+      shift: user.shift,
+      plantId: formatted.plantId,
+      plantName: formatted.plantName
     };
 
     const token = signJwt(tokenPayload);

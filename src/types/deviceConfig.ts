@@ -90,6 +90,21 @@ export interface RTSPConfig {
   hlsProxyUrl: string; // Optional HLS proxy URL for browser playback
 }
 
+export interface FtpConfig {
+  host: string;
+  apiUrl: string;
+  ftpPort: number;
+  sftpPort: number;
+  username: string;
+  password?: string;
+  cameraUser: string;
+  cameraPassword?: string;
+  adminUser?: string;
+  adminPassword?: string;
+  remoteFolder: string;
+  webAdminUrl: string;
+}
+
 export interface DeviceConfiguration {
   device: CameraDevice;
   network: NetworkConfig;
@@ -98,4 +113,5 @@ export interface DeviceConfiguration {
   anpr: ANPRConfig;
   webhook: WebhookConfig;
   rtsp: RTSPConfig;
+  ftp?: FtpConfig;
 }

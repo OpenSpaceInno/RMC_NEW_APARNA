@@ -6,7 +6,8 @@ import {
   ImageConfig, 
   ANPRConfig, 
   WebhookConfig, 
-  RTSPConfig 
+  RTSPConfig,
+  FtpConfig
 } from '@/types/deviceConfig';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
@@ -134,6 +135,21 @@ const defaultRTSPConfig: RTSPConfig = {
   hlsProxyUrl: '/hls/live_cam1/index.m3u8',
 };
 
+const defaultFtpConfig: FtpConfig = {
+  host: '213.210.37.249',
+  apiUrl: 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/api/v2',
+  ftpPort: 2121,
+  sftpPort: 2222,
+  username: 'aparna_rmc',
+  password: 'Rmc@Aparna#2026',
+  cameraUser: 'sarath',
+  cameraPassword: 'Password@123',
+  adminUser: 'ftpsuperadmin',
+  adminPassword: 'Demo#Test@2026',
+  remoteFolder: '/weighbridge',
+  webAdminUrl: 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/web/admin/users',
+};
+
 export function useDeviceConfig() {
   const { toast } = useToast();
   const [devices, setDevices] = useState<CameraDevice[]>(() => {
@@ -155,6 +171,8 @@ export function useDeviceConfig() {
   const [anprConfig, setANPRConfig] = useState<ANPRConfig>(defaultANPRConfig);
   const [webhookConfig, setWebhookConfig] = useState<WebhookConfig>(defaultWebhookConfig);
   const [rtspConfig, setRTSPConfig] = useState<RTSPConfig>(defaultRTSPConfig);
+  const [ftpConfig, setFtpConfig] = useState<FtpConfig>(defaultFtpConfig);
+  const [isTestingFtp, setIsTestingFtp] = useState(false);
 
   // Sync devices to localStorage
   useEffect(() => {
@@ -903,6 +921,75 @@ export function useDeviceConfig() {
     }
   }, [networkConfig, videoConfig, imageConfig, anprConfig, webhookConfig, rtspConfig, toast]);
 
+  // Load FTP configuration from server
+  const loadFtpConfig = useCallback(async () => {
+    try {
+      const res = await api.getFtpConfig();
+      if (res?.success && res.config) {
+        setFtpConfig(res.config);
+      }
+    } catch (e) {
+      console.warn('Could not load FTP configuration from API:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFtpConfig();
+  }, [loadFtpConfig]);
+
+  // Save FTP configuration to server
+  const saveFtpConfig = useCallback(async (newConfig: FtpConfig) => {
+    setIsLoading(true);
+    try {
+      const res = await api.updateFtpConfig(newConfig);
+      if (res?.success) {
+        setFtpConfig(res.config);
+        toast({
+          title: 'FTP Details Saved',
+          description: `Updated SFTPGo remote server URL & credentials on host ${res.config.host}.`,
+        });
+      }
+    } catch (e: any) {
+      toast({
+        title: 'Save Failed',
+        description: e.message || 'Unable to save FTP details.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  // Test FTP connection
+  const testFtpConfig = useCallback(async (configToTest?: FtpConfig) => {
+    setIsTestingFtp(true);
+    try {
+      const res = await api.testFtpConnection(configToTest || ftpConfig);
+      if (res?.success) {
+        toast({
+          title: 'FTP Connection Successful',
+          description: res.message || `Connected to SFTPGo server in ${res.latencyMs}ms.`,
+        });
+      } else {
+        toast({
+          title: 'FTP Connection Failed',
+          description: res?.error || 'Could not authenticate with remote FTP server.',
+          variant: 'destructive',
+        });
+      }
+      return res;
+    } catch (e: any) {
+      toast({
+        title: 'FTP Error',
+        description: e.message || 'Error communicating with SFTPGo endpoint.',
+        variant: 'destructive',
+      });
+      return { success: false, error: e.message };
+    } finally {
+      setIsTestingFtp(false);
+    }
+  }, [ftpConfig, toast]);
+
   return {
     devices,
     selectedDevice,
@@ -914,6 +1001,8 @@ export function useDeviceConfig() {
     anprConfig,
     webhookConfig,
     rtspConfig,
+    ftpConfig,
+    isTestingFtp,
     selectDevice,
     refreshDevices,
     saveNetworkConfig,
@@ -922,9 +1011,12 @@ export function useDeviceConfig() {
     saveANPRConfig,
     saveWebhookConfig,
     saveRTSPConfig,
+    saveFtpConfig,
     testConnection,
     testWebhook,
     testRTSPStream,
+    testFtpConfig,
+    loadFtpConfig,
     rebootDevice,
     addDevice,
     updateDevice,
@@ -937,5 +1029,6 @@ export function useDeviceConfig() {
     setANPRConfig,
     setWebhookConfig,
     setRTSPConfig,
+    setFtpConfig,
   };
 }

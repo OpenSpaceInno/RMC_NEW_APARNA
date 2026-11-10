@@ -1,6 +1,7 @@
 // API client for MySQL backend
 import type { AuthResponse, User, Role, DemoUser, LoginCredentials } from '../types/auth';
 import type { Plant } from '../types/plant';
+import type { FtpConfig } from '../types/deviceConfig';
 import type { 
   SapPurchaseOrder, 
   SapStatus, 
@@ -1147,6 +1148,39 @@ class ApiClient {
       lastModified: string;
       imageUrl: string;
     }>>(`/ftp/plates?limit=${limit}`);
+  }
+
+  async getFtpConfig() {
+    return this.request<{
+      success: boolean;
+      config: FtpConfig;
+    }>('/ftp/config');
+  }
+
+  async updateFtpConfig(data: Partial<FtpConfig>) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      config: FtpConfig;
+    }>('/ftp/config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async testFtpConnection(data?: Partial<FtpConfig>) {
+    return this.request<{
+      success: boolean;
+      latencyMs?: number;
+      tokenExpiry?: string;
+      message?: string;
+      error?: string;
+      host?: string;
+      user?: string;
+    }>('/ftp/test', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
   }
 }
 

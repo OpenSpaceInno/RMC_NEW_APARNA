@@ -19,6 +19,39 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// GET /api/ftp/config
+// Returns current FTP / SFTP configuration
+router.get('/config', async (req, res) => {
+  try {
+    const config = ftpService.getConfig();
+    res.json({ success: true, config });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/ftp/config
+// Updates and persists FTP / SFTP configuration
+router.put('/config', async (req, res) => {
+  try {
+    const updated = await ftpService.updateConfig(req.body);
+    res.json({ success: true, message: 'FTP configuration updated successfully', config: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ftp/test
+// Tests connection and authentication with remote SFTPGo / FTP server
+router.post('/test', async (req, res) => {
+  try {
+    const result = await ftpService.testConnection(req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET /api/ftp/recent
 router.get('/recent', async (req, res) => {
   try {

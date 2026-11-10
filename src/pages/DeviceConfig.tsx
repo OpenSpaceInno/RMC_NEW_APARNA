@@ -8,11 +8,12 @@ import { ImageConfigPanel } from '@/components/device/ImageConfigPanel';
 import { ANPRConfigPanel } from '@/components/device/ANPRConfigPanel';
 import { WebhookConfigPanel } from '@/components/device/WebhookConfigPanel';
 import { RTSPConfigPanel } from '@/components/device/RTSPConfigPanel';
+import { FtpConfigPanel } from '@/components/device/FtpConfigPanel';
 import { LiveStreamViewer } from '@/components/device/LiveStreamViewer';
 import { DeviceActions } from '@/components/device/DeviceActions';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { Camera, Network, Video, Image, ScanLine, Webhook, Settings, Radio } from 'lucide-react';
+import { Camera, Network, Video, Image, ScanLine, Webhook, Settings, Radio, FolderSync } from 'lucide-react';
 import { CameraDevice } from '@/types/deviceConfig';
 
 export default function DeviceConfig() {
@@ -50,6 +51,11 @@ export default function DeviceConfig() {
     setANPRConfig,
     setWebhookConfig,
     setRTSPConfig,
+    ftpConfig,
+    setFtpConfig,
+    saveFtpConfig,
+    testFtpConfig,
+    isTestingFtp,
   } = useDeviceConfig();
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -92,7 +98,7 @@ export default function DeviceConfig() {
               {/* Configuration Tabs */}
               <div className="col-span-12 xl:col-span-8">
                 <Tabs defaultValue="rtsp" className="w-full">
-                  <TabsList className="grid grid-cols-6 w-full">
+                  <TabsList className="grid grid-cols-7 w-full">
                     <TabsTrigger value="rtsp" className="flex items-center gap-1">
                       <Radio className="h-4 w-4" />
                       <span className="hidden sm:inline">RTSP</span>
@@ -116,6 +122,10 @@ export default function DeviceConfig() {
                     <TabsTrigger value="webhook" className="flex items-center gap-1">
                       <Webhook className="h-4 w-4" />
                       <span className="hidden sm:inline">Webhook</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="ftp" className="flex items-center gap-1 text-amber-400 data-[state=active]:text-amber-300">
+                      <FolderSync className="h-4 w-4" />
+                      <span className="hidden sm:inline">FTP Details</span>
                     </TabsTrigger>
                   </TabsList>
 
@@ -178,6 +188,17 @@ export default function DeviceConfig() {
                         onTest={testWebhook}
                         isLoading={isLoading}
                         isTesting={isTesting}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="ftp">
+                      <FtpConfigPanel
+                        config={ftpConfig}
+                        onChange={setFtpConfig}
+                        onSave={saveFtpConfig}
+                        onTest={testFtpConfig}
+                        isLoading={isLoading}
+                        isTesting={isTestingFtp}
                       />
                     </TabsContent>
                   </div>

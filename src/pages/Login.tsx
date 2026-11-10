@@ -16,7 +16,8 @@ import {
   ArrowRight,
   Sparkles,
   Camera,
-  Cpu
+  Cpu,
+  ShieldAlert
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,23 +57,32 @@ export default function Login() {
       if (success) {
         navigate('/gate-monitor');
       } else {
-        setErrorMessage('Invalid operator credentials. Please check your username and password.');
+        setErrorMessage('Invalid login details');
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Authentication error. Please check system connection.');
+      setErrorMessage(err?.message || 'Invalid login details');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const fillQuickPreset = (userType: 'admin' | 'weigh_op') => {
+  const fillQuickPreset = (userType: 'admin' | 'weigh_op' | 'miyapur_op') => {
     setErrorMessage(null);
     if (userType === 'admin') {
       setUsername('admin');
       setPassword('admin123');
-    } else {
+      setSelectedPlantId('PL01');
+      switchPlant('PL01');
+    } else if (userType === 'weigh_op') {
       setUsername('weigh_op');
       setPassword('weigh123');
+      setSelectedPlantId('PL01');
+      switchPlant('PL01');
+    } else {
+      setUsername('op_miyapur');
+      setPassword('plant123');
+      setSelectedPlantId('PL02');
+      switchPlant('PL02');
     }
   };
 
@@ -219,9 +229,11 @@ export default function Login() {
 
               {/* Error Message Box */}
               {errorMessage && (
-                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1">
-                  <div className="h-2 w-2 rounded-full bg-red-400 mt-1.5 shrink-0" />
-                  <div>{errorMessage}</div>
+                <div className="p-3 bg-red-500/15 border border-red-500/40 rounded-xl text-xs text-red-200 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 shadow-lg shadow-red-950/40">
+                  <div className="h-6 w-6 rounded-lg bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="h-3.5 w-3.5 text-red-400" />
+                  </div>
+                  <div className="font-semibold text-red-200">{errorMessage}</div>
                 </div>
               )}
 
@@ -323,46 +335,67 @@ export default function Login() {
                   )}
                 </Button>
 
-                {/* Subtle Quick Preset Selector (Unobtrusive) */}
+                {/* Quick Preset Selector with Designated Plant Terminals */}
                 <div className="pt-3 border-t border-slate-800/80">
                   <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2">
-                    <span className="font-medium text-slate-400">Quick Fill Credentials:</span>
+                    <span className="font-medium text-slate-400">Quick Test Credentials (3-Way Verification):</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
                     <button
                       type="button"
                       onClick={() => fillQuickPreset('admin')}
-                      className={`text-left p-2.5 rounded-xl border transition-all flex items-center gap-2.5 ${
+                      className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
                         username === 'admin' 
-                          ? 'bg-purple-950/40 border-purple-500/50 text-purple-200' 
+                          ? 'bg-purple-950/40 border-purple-500/50 text-purple-200 shadow-md shadow-purple-950/50' 
                           : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
                       }`}
                     >
-                      <div className="h-7 w-7 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center shrink-0">
+                      <div className="flex items-center gap-1.5">
                         <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
+                        <span className="font-bold text-[11px] truncate">Admin</span>
                       </div>
-                      <div className="overflow-hidden">
-                        <div className="font-bold text-[11px] truncate">Admin / Plant Head</div>
-                        <div className="text-[10px] text-slate-500 font-mono truncate">admin / admin123</div>
-                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">admin123</div>
+                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-purple-500/10 border-purple-500/30 text-purple-300 w-fit">
+                        Plant PL01
+                      </Badge>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => fillQuickPreset('weigh_op')}
-                      className={`text-left p-2.5 rounded-xl border transition-all flex items-center gap-2.5 ${
+                      className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
                         username === 'weigh_op' 
-                          ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200' 
+                          ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 shadow-md shadow-emerald-950/50' 
                           : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
                       }`}
                     >
-                      <div className="h-7 w-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                      <div className="flex items-center gap-1.5">
                         <Scale className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="font-bold text-[11px] truncate">Weigh Op</span>
                       </div>
-                      <div className="overflow-hidden">
-                        <div className="font-bold text-[11px] truncate">Weighbridge Operator</div>
-                        <div className="text-[10px] text-slate-500 font-mono truncate">weigh_op / weigh123</div>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">weigh123</div>
+                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-emerald-500/10 border-emerald-500/30 text-emerald-300 w-fit">
+                        Plant PL01
+                      </Badge>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => fillQuickPreset('miyapur_op')}
+                      className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
+                        username === 'op_miyapur' 
+                          ? 'bg-blue-950/40 border-blue-500/50 text-blue-200 shadow-md shadow-blue-950/50' 
+                          : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Factory className="h-3.5 w-3.5 text-blue-400" />
+                        <span className="font-bold text-[11px] truncate">Miyapur</span>
                       </div>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">plant123</div>
+                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-blue-500/10 border-blue-500/30 text-blue-300 w-fit">
+                        Plant PL02
+                      </Badge>
                     </button>
                   </div>
                 </div>
