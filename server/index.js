@@ -60,68 +60,80 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increase limit for image uploads
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// MediaMTX HLS Reverse Proxy (converts /hls/:stream to MediaMTX port 8888, eliminating mixed-content errors on HTTPS)
+// MediaMTX HLS Reverse Proxy with dual fallback (Local MediaMTX -> Cloud MediaMTX 213.210.37.249)
 app.use('/hls', (req, res) => {
-  const mediamtxHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
+  const cloudHost = '213.210.37.249';
+  const localHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
   const mediamtxPort = process.env.MEDIAMTX_PORT || 8888;
-  const targetPath = req.url; // e.g. /cam1/index.m3u8
-
+  const targetPath = req.url; // e.g. /live_cam1/index.m3u8
   const clientOrigin = req.headers.origin;
 
-  const proxyReq = http.request(
-    {
-      hostname: mediamtxHost,
-      port: mediamtxPort,
-      path: targetPath,
-      method: req.method,
-      headers: {
-        ...req.headers,
-        host: `${mediamtxHost}:${mediamtxPort}`
+  const pipeProxy = (host, isFallback = false) => {
+    const proxyReq = http.request(
+      {
+        hostname: host,
+        port: mediamtxPort,
+        path: targetPath,
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: `${host}:${mediamtxPort}`
+        }
+      },
+      (proxyRes) => {
+        // If local MediaMTX returns 404 or 502 and we haven't tried cloud yet, fallback to cloud MediaMTX
+        if ((proxyRes.statusCode === 404 || proxyRes.statusCode === 502) && !isFallback && host !== cloudHost) {
+          return pipeProxy(cloudHost, true);
+        }
+
+        const responseHeaders = { ...proxyRes.headers };
+        if (responseHeaders.location && !responseHeaders.location.startsWith('/hls/')) {
+          responseHeaders.location = `/hls${responseHeaders.location.startsWith('/') ? '' : '/'}${responseHeaders.location}`;
+        }
+
+        // Rewrite Set-Cookie Path so browsers send cookies on /hls requests
+        if (responseHeaders['set-cookie']) {
+          const cookies = Array.isArray(responseHeaders['set-cookie']) 
+            ? responseHeaders['set-cookie'] 
+            : [responseHeaders['set-cookie']];
+          responseHeaders['set-cookie'] = cookies.map(c => 
+            c.replace(/Path=[^;]+/i, 'Path=/')
+          );
+        }
+
+        if (clientOrigin) {
+          responseHeaders['Access-Control-Allow-Origin'] = clientOrigin;
+          responseHeaders['Access-Control-Allow-Credentials'] = 'true';
+        } else {
+          responseHeaders['Access-Control-Allow-Origin'] = '*';
+        }
+        responseHeaders['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range, Authorization';
+        responseHeaders['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
+        responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+
+        res.writeHead(proxyRes.statusCode, responseHeaders);
+        proxyRes.pipe(res);
       }
-    },
-    (proxyRes) => {
-      const responseHeaders = { ...proxyRes.headers };
-      if (responseHeaders.location && !responseHeaders.location.startsWith('/hls/')) {
-        responseHeaders.location = `/hls${responseHeaders.location.startsWith('/') ? '' : '/'}${responseHeaders.location}`;
+    );
+
+    proxyReq.on('error', (err) => {
+      if (!isFallback && host !== cloudHost) {
+        return pipeProxy(cloudHost, true);
       }
-
-      // Rewrite Set-Cookie Path so browsers send cookies on /hls requests
-      if (responseHeaders['set-cookie']) {
-        const cookies = Array.isArray(responseHeaders['set-cookie']) 
-          ? responseHeaders['set-cookie'] 
-          : [responseHeaders['set-cookie']];
-        responseHeaders['set-cookie'] = cookies.map(c => 
-          c.replace(/Path=[^;]+/i, 'Path=/')
-        );
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: 'HLS stream proxy unavailable',
+          detail: err.message,
+          stream: targetPath,
+          recommendation: 'Check if MediaMTX is active or switch to Simulated CCTV / WebCam mode'
+        });
       }
+    });
 
-      if (clientOrigin) {
-        responseHeaders['Access-Control-Allow-Origin'] = clientOrigin;
-        responseHeaders['Access-Control-Allow-Credentials'] = 'true';
-      } else {
-        responseHeaders['Access-Control-Allow-Origin'] = '*';
-      }
-      responseHeaders['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range, Authorization';
-      responseHeaders['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-      responseHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    req.pipe(proxyReq);
+  };
 
-      res.writeHead(proxyRes.statusCode, responseHeaders);
-      proxyRes.pipe(res);
-    }
-  );
-
-  proxyReq.on('error', (err) => {
-    if (!res.headersSent) {
-      res.status(502).json({
-        error: 'HLS stream proxy unavailable',
-        detail: err.message,
-        stream: targetPath,
-        recommendation: 'Check if MediaMTX is active or switch to Simulated CCTV / WebCam mode'
-      });
-    }
-  });
-
-  req.pipe(proxyReq);
+  pipeProxy(localHost);
 });
 
 // Mount Modular API Routers

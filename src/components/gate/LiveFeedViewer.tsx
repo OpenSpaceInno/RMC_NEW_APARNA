@@ -25,11 +25,9 @@ import {
   Sparkles
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { RTSPConfig } from "@/types/deviceConfig";
-import Hls from 'hls.js';
 import { LiveANPRDetector } from "./LiveANPRDetector";
 import { useSimulatedFeed } from "./useSimulatedFeed";
-import { resolveCameraHlsUrl } from "@/lib/cameraStream";
+import { resolveCameraHlsUrl, attachHlsStream } from "@/lib/cameraStream";
 import { toast } from "sonner";
 
 interface LiveFeedViewerProps {
@@ -265,111 +263,29 @@ export function LiveFeedViewer({
       ? primaryUrl.replace('/cam2/', '/live_cam2/')
       : null;
 
-    let isResolved = false;
-    let triedAlternate = false;
-    let networkRetryCount = 0;
-    const maxRetries = 3;
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 60,
-        manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,
-        fragLoadingTimeOut: 10000,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = true;
-        }
-      });
-
-      hlsRef.current = hls;
-      hls.loadSource(primaryUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        isResolved = true;
-        console.log(`[${camera.id}] Live HLS stream connected successfully (${primaryUrl})`);
+    const unmountHls = attachHlsStream({
+      video,
+      urlOrPair: { primaryUrl, alternateUrl },
+      onConnected: () => {
+        stopSimulation();
+        setFeedMode('live');
         setStreamStatus('connected');
-        video.play().catch(e => console.warn('Autoplay error:', e));
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!isResolved && alternateUrl && !triedAlternate) {
-          triedAlternate = true;
-          console.info(`[${camera.id}] Primary stream ${primaryUrl} not ready; checking alternate ${alternateUrl}...`);
-          hls.loadSource(alternateUrl);
-          return;
-        }
-
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              networkRetryCount++;
-              if (networkRetryCount <= maxRetries) {
-                console.log(`[${camera.id}] HLS network error, retry ${networkRetryCount}/${maxRetries}...`);
-                hls.startLoad();
-              } else {
-                console.warn(`[${camera.id}] Camera RTSP stream unreachable. Auto-engaging live CCTV simulation.`);
-                hls.destroy();
-                hlsRef.current = null;
-                startSimulation();
-                setFeedMode('simulated');
-                setStreamStatus('simulated');
-              }
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.log(`[${camera.id}] HLS media error, recovering...`);
-              hls.recoverMediaError();
-              break;
-            default:
-              console.warn(`[${camera.id}] Fatal HLS error:`, data.details);
-              hls.destroy();
-              hlsRef.current = null;
-              startSimulation();
-              setFeedMode('simulated');
-              setStreamStatus('simulated');
-              break;
-          }
-        }
-      });
-
-      // Allow up to 12s for initial HLS stream handshake
-      const fallbackTimer = setTimeout(() => {
-        if (!isResolved) {
-          console.info(`[${camera.id}] Stream connection timeout; engaging zero-latency simulation.`);
-          hls.destroy();
-          hlsRef.current = null;
+      },
+      onError: () => {
+        if (feedMode !== 'live') {
           startSimulation();
           setFeedMode('simulated');
           setStreamStatus('simulated');
         }
-      }, 12000);
+      },
+      timeoutMs: 12000,
+      autoReconnect: true,
+    });
 
-      return () => {
-        clearTimeout(fallbackTimer);
-      };
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = primaryUrl;
-      let triedAlt = false;
-      video.addEventListener('loadedmetadata', () => {
-        isResolved = true;
-        setStreamStatus('connected');
-        video.play().catch(e => console.warn('Safari autoplay error:', e));
-      });
-      video.addEventListener('error', () => {
-        if (!triedAlt && alternateUrl) {
-          triedAlt = true;
-          video.src = alternateUrl;
-          return;
-        }
-        startSimulation();
-        setFeedMode('simulated');
-        setStreamStatus('simulated');
-      });
-    }
-  }, [rtspConfig?.hlsProxyUrl, camera.id, feedMode, startSimulation]);
+    return () => {
+      unmountHls();
+    };
+  }, [rtspConfig?.hlsProxyUrl, camera.id, feedMode, startSimulation, stopSimulation]);
 
   useEffect(() => {
     if (feedMode === 'rtsp') {

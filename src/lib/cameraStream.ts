@@ -128,11 +128,13 @@ export interface AttachHlsOptions {
   onConnected?: () => void;
   onError?: (err?: any) => void;
   timeoutMs?: number;
+  autoReconnect?: boolean;
 }
 
 /**
  * Universal HLS stream player attachment helper with credentials, dual URL fallback,
- * and graceful timeouts for zero-latency camera viewing across all plant modules.
+ * automatic infinite reconnection, and live stall recovery.
+ * Guarantees cameras remain continuously live without requiring page refreshes.
  */
 export function attachHlsStream({
   video,
@@ -140,6 +142,7 @@ export function attachHlsStream({
   onConnected,
   onError,
   timeoutMs = 12000,
+  autoReconnect = true,
 }: AttachHlsOptions): () => void {
   if (!video) return () => {};
 
@@ -147,113 +150,213 @@ export function attachHlsStream({
     ? resolveCameraStreamPair(urlOrPair)
     : urlOrPair;
 
+  let isDestroyed = false;
   let isResolved = false;
-  let triedAlternate = false;
+  let useAlternate = false;
   let hlsInstance: Hls | null = null;
   let fallbackTimer: any = null;
+  let reconnectTimer: any = null;
+  let heartbeatTimer: any = null;
+  let lastPlaybackTime = -1;
+  let stallCount = 0;
+
+  let consecutiveErrors = 0;
+
+  const getTargetUrl = () => {
+    return useAlternate && pair.alternateUrl ? pair.alternateUrl : pair.primaryUrl;
+  };
 
   const markSuccess = () => {
+    if (isDestroyed) return;
+    consecutiveErrors = 0;
     if (!isResolved) {
       isResolved = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
       video.muted = true;
-      video.play().catch(e => console.warn('Autoplay error:', e));
+      video.play().catch(e => console.warn('[CameraStream] Autoplay notice:', e));
       onConnected?.();
     }
   };
 
-  const markError = (details?: any) => {
-    if (fallbackTimer) clearTimeout(fallbackTimer);
+  const scheduleReconnect = (delayMs: number = 2000) => {
+    if (isDestroyed || !autoReconnect) return;
+    if (reconnectTimer) return;
+
+    // Toggle between primary and alternate on repeated reconnects if alternate exists
+    if (pair.alternateUrl) {
+      useAlternate = !useAlternate;
+    }
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (isDestroyed) return;
+      console.info(`[CameraStream] Auto-reconnecting live stream -> ${getTargetUrl()}`);
+      connect();
+    }, delayMs);
+  };
+
+  const cleanupCurrentHls = () => {
     if (hlsInstance) {
-      hlsInstance.destroy();
+      try {
+        hlsInstance.stopLoad();
+        hlsInstance.detachMedia();
+        hlsInstance.destroy();
+      } catch (e) {}
       hlsInstance = null;
     }
-    onError?.(details);
   };
+
+  const connect = () => {
+    if (isDestroyed || !video) return;
+    cleanupCurrentHls();
+
+    const targetUrl = getTargetUrl();
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 30,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        liveDurationInfinity: true,
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingMaxRetry: Infinity,
+        manifestLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetryTimeout: 4000,
+        levelLoadingTimeOut: 8000,
+        levelLoadingMaxRetry: Infinity,
+        levelLoadingRetryDelay: 1000,
+        levelLoadingMaxRetryTimeout: 4000,
+        fragLoadingTimeOut: 10000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+        }
+      });
+
+      hlsInstance = hls;
+      hls.loadSource(targetUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, markSuccess);
+      hls.on(Hls.Events.FRAG_LOADED, markSuccess);
+
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (isDestroyed) return;
+
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn(`[CameraStream] Network hiccup on ${targetUrl}, reloading...`);
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn(`[CameraStream] Media error on ${targetUrl}, recovering...`);
+              hls.recoverMediaError();
+              break;
+            default:
+              consecutiveErrors++;
+              console.warn(`[CameraStream] Stream hiccup on ${targetUrl}:`, data.details);
+              scheduleReconnect(1500);
+              if (consecutiveErrors >= 3) {
+                isResolved = false;
+                onError?.(data);
+              }
+              break;
+          }
+        } else if (data.details === 'bufferStalledError') {
+          // If buffered data exists, jump forward slightly to break the stall
+          if (video && video.buffered && video.buffered.length > 0) {
+            const end = video.buffered.end(video.buffered.length - 1);
+            if (end - video.currentTime > 0.5) {
+              video.currentTime = end - 0.2;
+              video.play().catch(() => {});
+            }
+          }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = targetUrl;
+      video.muted = true;
+
+      const onMeta = () => markSuccess();
+      const onErr = () => {
+        if (isDestroyed) return;
+        consecutiveErrors++;
+        scheduleReconnect(2000);
+        if (consecutiveErrors >= 3) {
+          isResolved = false;
+          onError?.({ details: 'SAFARI_HLS_ERROR' });
+        }
+      };
+
+      video.addEventListener('loadedmetadata', onMeta, { once: true });
+      video.addEventListener('error', onErr, { once: true });
+    } else {
+      onError?.({ details: 'HLS_UNSUPPORTED' });
+    }
+  };
+
+  // Initial stream connection
+  connect();
+
+  // Watchdog: ensures video keeps advancing and doesn't get stuck at buffer boundary
+  heartbeatTimer = setInterval(() => {
+    if (isDestroyed || !video) return;
+
+    if (isResolved) {
+      if (video.paused && !video.ended) {
+        video.play().catch(() => {});
+      }
+
+      if (video.currentTime === lastPlaybackTime && !video.paused) {
+        stallCount++;
+        if (stallCount >= 3) {
+          stallCount = 0;
+          if (video.buffered && video.buffered.length > 0) {
+            const end = video.buffered.end(video.buffered.length - 1);
+            video.currentTime = Math.max(0, end - 0.2);
+            video.play().catch(() => {});
+          } else {
+            // Buffer empty / publisher reset -> reload stream cleanly
+            scheduleReconnect(1000);
+          }
+        }
+      } else {
+        stallCount = 0;
+        lastPlaybackTime = video.currentTime;
+      }
+    }
+  }, 2500);
 
   if (timeoutMs > 0) {
     fallbackTimer = setTimeout(() => {
-      if (!isResolved) {
-        console.info(`HLS stream timeout (${pair.primaryUrl}); engaging fallback.`);
-        markError({ details: 'TIMEOUT' });
+      if (!isResolved && !isDestroyed) {
+        console.info(`[CameraStream] Initial handshake wait elapsed for ${pair.primaryUrl}; continuing background reconnect.`);
+        scheduleReconnect(1000);
       }
     }, timeoutMs);
   }
 
-  if (Hls.isSupported()) {
-    const hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 60,
-      manifestLoadingTimeOut: 10000,
-      manifestLoadingMaxRetry: 3,
-      levelLoadingTimeOut: 10000,
-      fragLoadingTimeOut: 10000,
-      xhrSetup: (xhr) => {
-        xhr.withCredentials = true;
-      }
-    });
-
-    hlsInstance = hls;
-    hls.loadSource(pair.primaryUrl);
-    hls.attachMedia(video);
-
-    hls.on(Hls.Events.MANIFEST_PARSED, markSuccess);
-    hls.on(Hls.Events.FRAG_LOADED, markSuccess);
-
-    hls.on(Hls.Events.ERROR, (_evt, data) => {
-      if (!isResolved && pair.alternateUrl && !triedAlternate) {
-        triedAlternate = true;
-        console.info(`Primary stream ${pair.primaryUrl} error; testing alternate ${pair.alternateUrl}...`);
-        hls.loadSource(pair.alternateUrl);
-        return;
-      }
-
-      if (data.fatal) {
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR:
-            hls.startLoad();
-            break;
-          case Hls.ErrorTypes.MEDIA_ERROR:
-            hls.recoverMediaError();
-            break;
-          default:
-            markError(data);
-            break;
-        }
-      }
-    });
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = pair.primaryUrl;
-    let triedAlt = false;
-
-    const onMeta = () => markSuccess();
-    const onErr = () => {
-      if (!triedAlt && pair.alternateUrl) {
-        triedAlt = true;
-        video.src = pair.alternateUrl;
-        return;
-      }
-      markError();
-    };
-
-    video.addEventListener('loadedmetadata', onMeta);
-    video.addEventListener('error', onErr);
-
-    return () => {
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-      video.removeEventListener('loadedmetadata', onMeta);
-      video.removeEventListener('error', onErr);
-    };
-  } else {
-    markError({ details: 'HLS_UNSUPPORTED' });
-  }
-
+  // Teardown function for React useEffect unmount
   return () => {
+    isDestroyed = true;
     if (fallbackTimer) clearTimeout(fallbackTimer);
-    if (hlsInstance) {
-      hlsInstance.destroy();
-      hlsInstance = null;
-    }
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    cleanupCurrentHls();
+    try {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    } catch (e) {}
   };
 }
+

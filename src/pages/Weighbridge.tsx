@@ -339,30 +339,61 @@ const Weighbridge = () => {
     }
   };
 
-  // Connect 3 live IP camera streams via HLS proxy (live_cam1, live_cam2) with credentials & fallback
+  // Connect 3 live IP camera streams via HLS proxy (live_cam1, live_cam2) with credentials, auto-reconnect & fallback
   useEffect(() => {
+    let cam1DropTimer: any = null;
+    let cam2DropTimer: any = null;
+    let cam3DropTimer: any = null;
+
     const unmount1 = attachHlsStream({
       video: cam1VideoRef.current,
       urlOrPair: resolveCameraHlsUrl('', 'live_cam1'),
-      onConnected: () => setCam1HlsActive(true),
-      onError: () => setCam1HlsActive(false),
+      onConnected: () => {
+        if (cam1DropTimer) { clearTimeout(cam1DropTimer); cam1DropTimer = null; }
+        setCam1HlsActive(true);
+      },
+      onError: () => {
+        if (!cam1DropTimer) {
+          cam1DropTimer = setTimeout(() => setCam1HlsActive(false), 8000);
+        }
+      },
+      autoReconnect: true,
     });
 
     const unmount2 = attachHlsStream({
       video: cam2VideoRef.current,
       urlOrPair: resolveCameraHlsUrl('', 'live_cam2'),
-      onConnected: () => setCam2HlsActive(true),
-      onError: () => setCam2HlsActive(false),
+      onConnected: () => {
+        if (cam2DropTimer) { clearTimeout(cam2DropTimer); cam2DropTimer = null; }
+        setCam2HlsActive(true);
+      },
+      onError: () => {
+        if (!cam2DropTimer) {
+          cam2DropTimer = setTimeout(() => setCam2HlsActive(false), 8000);
+        }
+      },
+      autoReconnect: true,
     });
 
     const unmount3 = attachHlsStream({
       video: cam3VideoRef.current,
       urlOrPair: resolveCameraHlsUrl('', 'live_cam2'),
-      onConnected: () => setCam3HlsActive(true),
-      onError: () => setCam3HlsActive(false),
+      onConnected: () => {
+        if (cam3DropTimer) { clearTimeout(cam3DropTimer); cam3DropTimer = null; }
+        setCam3HlsActive(true);
+      },
+      onError: () => {
+        if (!cam3DropTimer) {
+          cam3DropTimer = setTimeout(() => setCam3HlsActive(false), 8000);
+        }
+      },
+      autoReconnect: true,
     });
 
     return () => {
+      if (cam1DropTimer) clearTimeout(cam1DropTimer);
+      if (cam2DropTimer) clearTimeout(cam2DropTimer);
+      if (cam3DropTimer) clearTimeout(cam3DropTimer);
       unmount1();
       unmount2();
       unmount3();

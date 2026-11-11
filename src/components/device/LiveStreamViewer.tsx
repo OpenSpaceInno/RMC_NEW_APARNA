@@ -21,8 +21,7 @@ import {
   Scan,
   ShieldCheck
 } from 'lucide-react';
-import Hls from 'hls.js';
-import { resolveCameraHlsUrl } from '@/lib/cameraStream';
+import { resolveCameraHlsUrl, attachHlsStream } from '@/lib/cameraStream';
 
 interface LiveStreamViewerProps {
   device: CameraDevice | null;
@@ -250,90 +249,24 @@ export function LiveStreamViewer({
       return;
     }
 
-    let isResolved = false;
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,
-        fragLoadingTimeOut: 10000,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = true;
-        }
-      });
-
-      hlsRef.current = hls;
-
-      // Smart fallback: try primary URL, then alternate alias
-      const alternateUrl = hlsUrl.includes('live_cam1')
-        ? hlsUrl.replace('live_cam1', 'cam1')
-        : hlsUrl.includes('/cam1/')
-        ? hlsUrl.replace('/cam1/', '/live_cam1/')
-        : hlsUrl.includes('live_cam2')
-        ? hlsUrl.replace('live_cam2', 'cam2')
-        : hlsUrl.includes('/cam2/')
-        ? hlsUrl.replace('/cam2/', '/live_cam2/')
-        : null;
-
-      let triedAlternate = false;
-
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        isResolved = true;
-        setStreamStatus('connected');
-        video.play().catch(() => {});
-      });
-
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (!isResolved && alternateUrl && !triedAlternate) {
-          triedAlternate = true;
-          console.info(`Primary stream ${hlsUrl} not ready; checking alternate ${alternateUrl}...`);
-          hls.loadSource(alternateUrl);
-          return;
-        }
-        if (!isResolved || data.fatal) {
-          console.warn(`HLS stream issue for ${device.name}; activating live simulation fallback:`, data.details);
-          hls.destroy();
-          hlsRef.current = null;
-          startSimulation();
-        }
-      });
-
-      // Quick timeout fallback: allow up to 12s for initial HLS stream handshake
-      const fallbackTimer = setTimeout(() => {
-        if (!isResolved) {
-          console.info(`HLS timeout for ${device.name}; switching to zero-latency simulation.`);
-          hls.destroy();
-          hlsRef.current = null;
-          startSimulation();
-        }
-      }, 12000);
-
-      return () => {
-        clearTimeout(fallbackTimer);
-        hls.destroy();
-        hlsRef.current = null;
+    const unmountHls = attachHlsStream({
+      video,
+      urlOrPair: hlsUrl,
+      onConnected: () => {
         stopSimulation();
-      };
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = hlsUrl;
-      video.addEventListener('loadedmetadata', () => {
         setStreamStatus('connected');
-        video.play().catch(() => {});
-      });
-      video.addEventListener('error', () => {
-        startSimulation();
-      });
-    } else {
-      startSimulation();
-    }
+      },
+      onError: () => {
+        if (streamStatus !== 'connected') {
+          startSimulation();
+        }
+      },
+      timeoutMs: 12000,
+      autoReconnect: true,
+    });
 
     return () => {
+      unmountHls();
       stopSimulation();
     };
   }, [device, rtspConfig.enabled, rtspConfig.hlsProxyUrl, forceSimulation, startSimulation, stopSimulation]);

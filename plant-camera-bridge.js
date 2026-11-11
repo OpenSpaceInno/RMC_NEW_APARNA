@@ -51,6 +51,7 @@ const CAMERAS = [
     ip: '192.168.0.101',
     args: [
       '-rtsp_transport', 'tcp',
+      '-timeout', '5000000',
       '-i', 'rtsp://admin:Password@123@192.168.0.101:554/ch1/main/av_stream',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
@@ -71,6 +72,7 @@ const CAMERAS = [
     ip: '192.168.0.99',
     args: [
       '-rtsp_transport', 'tcp',
+      '-timeout', '5000000',
       '-i', 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
       '-c', 'copy',
       '-an',

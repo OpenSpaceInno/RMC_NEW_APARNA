@@ -168,7 +168,7 @@ hlsVariant: mpegts
 # Number of HLS segments to keep on the server.
 # Segments allow to seek through the stream.
 # Their number doesn't influence latency.
-hlsSegmentCount: 7
+hlsSegmentCount: 15
 # Minimum duration of each segment.
 # A player usually puts 3 segments in a buffer before reproducing the stream.
 # The final segment duration is also influenced by the interval between IDR frames,
@@ -352,7 +352,7 @@ pathDefaults:
   # Default path settings -> Publisher source (when source is "publisher")
 
   # Allow another client to disconnect the current publisher and publish in its place.
-  overridePublisher: yes
+  overridePublisher: no
   # SRT encryption passphrase required to publish to this path
   srtPublishPassphrase:
 

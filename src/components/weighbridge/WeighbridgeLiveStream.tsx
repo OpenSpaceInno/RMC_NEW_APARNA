@@ -36,7 +36,7 @@ import Hls from "hls.js";
 import { toast } from "sonner";
 import { WeightReading, Evidence } from "@/types/weighbridge";
 import { api } from "@/lib/api";
-import { resolveCameraHlsUrl } from "@/lib/cameraStream";
+import { resolveCameraHlsUrl, attachHlsStream } from "@/lib/cameraStream";
 import { CameraDiagnosticsModal } from "./CameraDiagnosticsModal";
 
 export interface CameraSource {
@@ -245,6 +245,7 @@ export function WeighbridgeLiveStream({
 
   // 3 HLS instances
   const hlsInstances = useRef<(Hls | null)[]>([null, null, null]);
+  const unmountFns = useRef<Array<(() => void) | null>>([null, null, null]);
   const animFrameRefs = useRef<(number | null)[]>([null, null, null]);
   const simStreams = useRef<(MediaStream | null)[]>([null, null, null]);
   const webcamStreams = useRef<(MediaStream | null)[]>([null, null, null]);
@@ -501,10 +502,7 @@ export function WeighbridgeLiveStream({
 
     stopTileSimulation(screenIndex);
 
-    if (hlsInstances.current[screenIndex]) {
-      hlsInstances.current[screenIndex]?.destroy();
-      hlsInstances.current[screenIndex] = null;
-    }
+    unmountFns.current[screenIndex]?.();
 
     setScreenStatuses(prev => {
       const next = [...prev];
@@ -512,116 +510,29 @@ export function WeighbridgeLiveStream({
       return next;
     });
 
-    let isConnected = false;
-    let triedAlternate = false;
     const defaultPath = screenIndex === 0 ? 'live_cam1' : 'live_cam2';
     const primaryUrl = resolveCameraHlsUrl(cam.hls, defaultPath);
-    const alternateUrl = primaryUrl.includes('live_cam1')
-      ? primaryUrl.replace('live_cam1', 'cam1')
-      : primaryUrl.includes('/cam1/')
-      ? primaryUrl.replace('/cam1/', '/live_cam1/')
-      : primaryUrl.includes('live_cam2')
-      ? primaryUrl.replace('live_cam2', 'cam2')
-      : primaryUrl.includes('/cam2/')
-      ? primaryUrl.replace('/cam2/', '/live_cam2/')
-      : null;
 
-    // Graceful fallback timer: allow up to 12s for initial HLS stream handshake
-    const fallbackTimer = setTimeout(() => {
-      if (!isConnected && feedModes[screenIndex] === 'rtsp') {
-        startTileSimulation(screenIndex);
-      }
-    }, 12000);
-
-    const markConnected = () => {
-      if (!isConnected) {
-        isConnected = true;
-        clearTimeout(fallbackTimer);
+    unmountFns.current[screenIndex] = attachHlsStream({
+      video,
+      urlOrPair: primaryUrl,
+      onConnected: () => {
         stopTileSimulation(screenIndex);
         setScreenStatuses(prev => {
           const next = [...prev];
           next[screenIndex] = 'connected';
           return next;
         });
-      }
-    };
-
-    video.onplaying = markConnected;
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 60,
-        manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,
-        fragLoadingTimeOut: 10000,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = true;
+      },
+      onError: () => {
+        if (feedModes[screenIndex] === 'rtsp') {
+          startTileSimulation(screenIndex);
         }
-      });
-
-      hlsInstances.current[screenIndex] = hls;
-      hls.loadSource(primaryUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        markConnected();
-        video.play().catch(e => console.warn(`Autoplay on screen ${screenIndex}:`, e));
-      });
-
-      hls.on(Hls.Events.FRAG_LOADED, () => {
-        markConnected();
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!isConnected && alternateUrl && !triedAlternate) {
-          triedAlternate = true;
-          console.info(`Screen ${screenIndex} primary ${primaryUrl} not ready; checking alternate ${alternateUrl}...`);
-          hls.loadSource(alternateUrl);
-          return;
-        }
-
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              clearTimeout(fallbackTimer);
-              hls.destroy();
-              hlsInstances.current[screenIndex] = null;
-              startTileSimulation(screenIndex);
-              break;
-          }
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = primaryUrl;
-      let triedAlt = false;
-      video.addEventListener('loadedmetadata', () => {
-        markConnected();
-        video.play().catch(e => console.warn('Safari video autoplay:', e));
-      });
-      video.addEventListener('error', () => {
-        if (!triedAlt && alternateUrl) {
-          triedAlt = true;
-          video.src = alternateUrl;
-          return;
-        }
-        clearTimeout(fallbackTimer);
-        startTileSimulation(screenIndex);
-      });
-    } else {
-      clearTimeout(fallbackTimer);
-      startTileSimulation(screenIndex);
-    }
+      },
+      timeoutMs: 12000,
+      autoReconnect: true,
+    });
   }, [assignedCameras, feedModes, startTileSimulation, stopTileSimulation]);
-
 
   // Connect on mount & assignedCameras changes
   useEffect(() => {
@@ -630,8 +541,8 @@ export function WeighbridgeLiveStream({
     });
 
     return () => {
-      hlsInstances.current.forEach(h => h?.destroy());
-      hlsInstances.current = [null, null, null];
+      unmountFns.current.forEach(u => u?.());
+      unmountFns.current = [null, null, null];
       [0, 1, 2].forEach(idx => stopTileSimulation(idx));
     };
   }, [initHlsStream, stopTileSimulation]);
