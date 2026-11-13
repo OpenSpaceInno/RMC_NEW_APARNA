@@ -85,7 +85,7 @@ export default function DatabaseSetup() {
           <div className="space-y-2">
             <h4 className="font-medium text-sm">What will be created:</h4>
             <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-              <li>MySQL database: <code className="bg-muted px-1 py-0.5 rounded">rmc_gate_system</code></li>
+              <li>MySQL database: <code className="bg-muted px-1 py-0.5 rounded">Aparna_RMC_Db</code></li>
               <li>camera_devices - Store camera information</li>
               <li>device_rtsp_config - Store RTSP streaming settings</li>
               <li>device_network_config - Store network configuration</li>
