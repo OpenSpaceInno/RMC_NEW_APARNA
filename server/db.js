@@ -68,6 +68,28 @@ async function initializeDatabase() {
     // Create database if it doesn't exist
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
     console.log(`✅ Database '${dbName}' ready`);
+
+    // Automatically clone all tables & data from legacy rmc_gate_system if it exists
+    if (dbName !== 'rmc_gate_system') {
+      try {
+        const [existingLegacy] = await connection.query("SHOW DATABASES LIKE 'rmc_gate_system'");
+        if (existingLegacy && existingLegacy.length > 0) {
+          const [tables] = await connection.query("SHOW TABLES FROM `rmc_gate_system`");
+          for (const row of tables) {
+            const tbl = Object.values(row)[0];
+            try {
+              await connection.query(`CREATE TABLE IF NOT EXISTS \`${dbName}\`.\`${tbl}\` LIKE \`rmc_gate_system\`.\`${tbl}\``);
+              await connection.query(`INSERT IGNORE INTO \`${dbName}\`.\`${tbl}\` SELECT * FROM \`rmc_gate_system\`.\`${tbl}\``);
+            } catch (tblErr) {
+              // Ignore individual table copy errors (e.g. view vs table)
+            }
+          }
+          console.log(`🔄 Auto-migrated tables from rmc_gate_system into ${dbName}`);
+        }
+      } catch (cloneErr) {
+        console.warn('Legacy DB auto-clone note:', cloneErr.message);
+      }
+    }
     connection.release();
     
     // Now use the database connection pool
