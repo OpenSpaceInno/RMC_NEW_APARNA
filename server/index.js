@@ -203,28 +203,26 @@ app.get('/api/db-status', async (req, res) => {
 
 // ==================== CAMERA DEVICES ====================
 
-// Get all camera devices (optionally filtered by plant_id; plant users strictly scoped to own plant)
+// Get all camera devices (strictly scoped by plant_id; plant users locked to own plant)
 app.get('/api/cameras', async (req, res) => {
   try {
     const caller = await getRequestUser(req);
-    let effectivePlantId = req.query.plant_id;
+    let plantId = req.query.plant_id;
 
+    // Non-superadmin users are strictly isolated to their assigned plant
     if (caller && !isSuperAdminUser(caller)) {
-      effectivePlantId = caller.plant_id || 'PL01';
+      plantId = caller.plant_id || 'PL01';
     }
 
-    if (effectivePlantId && effectivePlantId !== 'all') {
+    if (plantId && plantId !== 'all') {
       const [rows] = await pool.query(
-        "SELECT * FROM camera_devices WHERE plant_id = ? OR plant_id = 'all' OR plant_id IS NULL OR plant_id = '' ORDER BY created_at",
-        [effectivePlantId]
+        'SELECT * FROM camera_devices WHERE plant_id = ? ORDER BY created_at',
+        [plantId]
       );
-      if (rows && rows.length > 0) {
-        return res.json(rows);
-      }
-      // Fallback: If no cameras specifically matched for this plant ID, return all cameras
-      const [allRows] = await pool.query('SELECT * FROM camera_devices ORDER BY created_at');
-      return res.json(allRows);
+      return res.json(rows);
     }
+
+    // Only when plantId is 'all' or omitted by superadmin, return all devices
     const [rows] = await pool.query('SELECT * FROM camera_devices ORDER BY created_at');
     res.json(rows);
   } catch (error) {

@@ -19,7 +19,7 @@ import { useWeighbridge } from "@/hooks/useWeighbridge";
 import { useGateCameras, PlantCameraFeed } from "@/hooks/useGateCameras";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { resolveCameraHlsUrl, attachHlsStream } from "@/lib/cameraStream";
+import { resolveCameraHlsUrl, resolveCameraStreamPair, attachHlsStream } from "@/lib/cameraStream";
 import { toast } from "sonner";
 
 interface CapturedEvidence {
@@ -35,6 +35,333 @@ interface CapturedEvidence {
   targetUser?: string;
   remoteFtpPath?: string;
 }
+
+interface WeighbridgeCameraCardProps {
+  cam: PlantCameraFeed;
+  idx: number;
+  isVisible: boolean;
+  isSingleFocused: boolean;
+  vehicleNumber: string;
+  currentWeight: { weight: number; stable: boolean };
+  ftpEvidence: { plate: string; filename: string; imageUrl: string; timestamp: string } | null;
+  onEnlargeImage: (url: string) => void;
+  onRegisterCapture: (camId: string, captureFn: () => string) => void;
+  onImageError?: () => void;
+}
+
+// Dedicated Camera Card: isolates video ref & HLS lifecycle from scale weight state ticks
+const WeighbridgeCameraCard = React.memo(({
+  cam,
+  idx,
+  isVisible,
+  isSingleFocused,
+  vehicleNumber,
+  currentWeight,
+  ftpEvidence,
+  onEnlargeImage,
+  onRegisterCapture,
+  onImageError,
+}: WeighbridgeCameraCardProps) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isLiveStreamPlaying, setIsLiveStreamPlaying] = useState(false);
+  const animFrameRef = useRef<number | null>(null);
+
+  const showFtpOverlay = Boolean(cam.isANPR && ftpEvidence?.imageUrl);
+
+  // HLS attachment: ONLY re-runs if cam.id or cam.hlsUrl changes (NEVER on scale weight updates)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let destroyed = false;
+
+    const handlePlaying = () => {
+      if (!destroyed && video.videoWidth > 0) {
+        setIsLiveStreamPlaying(true);
+      }
+    };
+
+    const handleWaiting = () => {
+      if (!destroyed && (video.readyState < 2 || video.videoWidth === 0)) {
+        setIsLiveStreamPlaying(false);
+      }
+    };
+
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('loadeddata', handlePlaying);
+    video.addEventListener('timeupdate', handlePlaying);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('stalled', handleWaiting);
+    video.addEventListener('error', () => {
+      if (!destroyed) setIsLiveStreamPlaying(false);
+    });
+
+    const streamPair = resolveCameraStreamPair(cam.hlsUrl || '', cam.id);
+    const unmountHls = attachHlsStream({
+      video,
+      urlOrPair: streamPair,
+      onConnected: () => {
+        // Live stream status will be confirmed when frames actively render
+      },
+      onError: () => {
+        if (!destroyed) setIsLiveStreamPlaying(false);
+      },
+      autoReconnect: true,
+      timeoutMs: 8000,
+    });
+
+    return () => {
+      destroyed = true;
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('loadeddata', handlePlaying);
+      video.removeEventListener('timeupdate', handlePlaying);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('stalled', handleWaiting);
+      unmountHls();
+    };
+  }, [cam.id, cam.hlsUrl]);
+
+  // Continuous Canvas Animation (Runs seamlessly whenever live stream is not actively decoding frames)
+  useEffect(() => {
+    if (showFtpOverlay) return;
+
+    const render = () => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const w = 640;
+          const h = 360;
+
+          if (cam.isANPR || cam.rawLocation === 'entry') {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 240, w, 120);
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([20, 20]);
+            ctx.beginPath();
+            ctx.moveTo(320, 240);
+            ctx.lineTo(320, 360);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(200, 120, 240, 160);
+            ctx.fillStyle = '#64748b';
+            ctx.fillRect(220, 130, 200, 70);
+            ctx.fillStyle = '#0284c7';
+            ctx.fillRect(230, 140, 180, 50);
+            ctx.fillStyle = '#fef08a';
+            ctx.beginPath();
+            ctx.arc(220, 220, 15, 0, Math.PI * 2);
+            ctx.arc(420, 220, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(190, 240, 260, 45);
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(260, 250, 120, 26);
+            ctx.fillStyle = '#0f172a';
+            ctx.font = 'bold 13px monospace';
+            ctx.fillText(vehicleNumber || 'TN88F4089', 266, 268);
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(256, 246, 128, 34);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(`CAM 0${idx + 1} • ${cam.name} • ${cam.ipAddress || ''}`, 10, 20);
+            ctx.fillStyle = '#22c55e';
+            ctx.fillText(`[OCR 99.2%] PLATE: ${vehicleNumber || 'TN88F4089'}`, 10, 36);
+          } else {
+            // Weighbridge & Scale Platform Visual
+            ctx.fillStyle = '#0b1120';
+            ctx.fillRect(0, 0, w, h);
+            // Batching silo structures
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(60, 30, 50, 130);
+            ctx.fillRect(125, 20, 50, 140);
+            ctx.fillRect(190, 40, 45, 120);
+            // Perspective platform
+            ctx.fillStyle = '#262d3d';
+            ctx.beginPath();
+            ctx.moveTo(180, 160);
+            ctx.lineTo(460, 160);
+            ctx.lineTo(600, 350);
+            ctx.lineTo(40, 350);
+            ctx.closePath();
+            ctx.fill();
+            // Hazard striping
+            ctx.fillStyle = '#eab308';
+            ctx.fillRect(40, 335, 560, 12);
+            ctx.fillStyle = '#000000';
+            for (let i = 50; i < 600; i += 40) {
+              ctx.fillRect(i, 335, 18, 12);
+            }
+            // Scale deck
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(220, 170, 200, 90);
+            ctx.fillStyle = '#94a3b8';
+            ctx.beginPath();
+            ctx.ellipse(330, 210, 75, 32, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(`CAM 0${idx + 1} • ${cam.name} • ${cam.ipAddress || ''}`, 10, 20);
+            ctx.fillStyle = '#10b981';
+            ctx.fillText(`SCALE: ${(currentWeight.weight / 1000).toFixed(2)} MT • ${currentWeight.stable ? 'STABLE' : 'MOTION'}`, 10, 36);
+          }
+        }
+      }
+      animFrameRef.current = requestAnimationFrame(render);
+    };
+
+    animFrameRef.current = requestAnimationFrame(render);
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [cam, idx, vehicleNumber, currentWeight, showFtpOverlay]);
+
+  // Register frame capture callback
+  useEffect(() => {
+    onRegisterCapture(cam.id, () => {
+      if (isLiveStreamPlaying && videoRef.current && videoRef.current.videoWidth > 0) {
+        try {
+          const c = document.createElement('canvas');
+          c.width = 640;
+          c.height = 360;
+          const ctx = c.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(videoRef.current, 0, 0, 640, 360);
+            return c.toDataURL('image/jpeg', 0.85);
+          }
+        } catch (e) {}
+      }
+      if (canvasRef.current) {
+        try {
+          return canvasRef.current.toDataURL('image/jpeg', 0.85);
+        } catch (e) {}
+      }
+      if (showFtpOverlay && ftpEvidence?.imageUrl) {
+        return ftpEvidence.imageUrl;
+      }
+      return '';
+    });
+  }, [cam.id, isLiveStreamPlaying, showFtpOverlay, ftpEvidence, onRegisterCapture]);
+
+  const badgeText = showFtpOverlay
+    ? 'FTP SNAPSHOT CAPTURED'
+    : isLiveStreamPlaying
+    ? 'LIVE IP CAMERA'
+    : cam.isANPR
+    ? 'FTP AUTO-ANPR'
+    : 'AUTO LIVE DETECT';
+
+  const badgeClass = showFtpOverlay || isLiveStreamPlaying
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+    : 'bg-blue-50 text-blue-700 border-blue-300';
+
+  return (
+    <div
+      className={`space-y-1.5 w-full ${isVisible ? 'block' : 'hidden'} ${isSingleFocused ? 'max-w-4xl mx-auto' : ''}`}
+    >
+      <div className="flex justify-between items-center text-[11px]">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-bold text-slate-800 truncate">
+            CAM 0{idx + 1}: {cam.name}
+          </span>
+          <span className="font-mono text-[10px] text-slate-500 font-semibold shrink-0">
+            ({cam.ipAddress || cam.ip_address})
+          </span>
+        </div>
+        <Badge
+          variant="outline"
+          className={`text-[9px] flex items-center gap-1 shrink-0 ${badgeClass}`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              isLiveStreamPlaying ? 'bg-emerald-600 animate-ping' : 'bg-blue-600 animate-pulse'
+            }`}
+          />
+          <span>{badgeText}</span>
+        </Badge>
+      </div>
+
+      <div className="relative rounded overflow-hidden border border-[#bca182] bg-slate-950 aspect-video shadow-inner group">
+        {showFtpOverlay && ftpEvidence ? (
+          <>
+            <img
+              src={ftpEvidence.imageUrl}
+              alt={cam.name}
+              className="w-full h-full object-cover"
+              onError={onImageError}
+            />
+            <div className="absolute top-1.5 left-1.5 bg-black/75 backdrop-blur-xs px-2 py-0.5 rounded text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <span>{cam.name} • CAPTURED</span>
+            </div>
+            <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/80 backdrop-blur-xs px-2 py-1 rounded text-[10px] text-white flex justify-between items-center">
+              <span className="font-mono text-emerald-400 font-bold text-xs tracking-wider">
+                {vehicleNumber || ftpEvidence.plate}
+              </span>
+              <button
+                type="button"
+                onClick={() => onEnlargeImage(ftpEvidence.imageUrl)}
+                className="text-[10px] text-amber-300 hover:text-amber-100 flex items-center gap-1 font-semibold cursor-pointer"
+              >
+                <Maximize2 className="h-3 w-3" />
+                <span>Enlarge</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              className={`w-full h-full object-cover ${isLiveStreamPlaying ? 'block' : 'hidden'}`}
+            />
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={360}
+              className={`w-full h-full object-cover ${isLiveStreamPlaying ? 'hidden' : 'block'}`}
+            />
+            <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/75 backdrop-blur-xs px-2 py-1 rounded text-[10px] text-white flex justify-between items-center">
+              {cam.isANPR ? (
+                <>
+                  <span className="font-mono text-emerald-400 font-bold">
+                    {vehicleNumber || (isLiveStreamPlaying ? 'LIVE RTSP STREAM' : 'SEARCHING FTP...')}
+                  </span>
+                  <span className="text-slate-300 font-mono">
+                    {isLiveStreamPlaying ? 'LIVE • RTSP' : cam.location}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="font-mono text-amber-300 font-bold">
+                    {cam.location} • {(currentWeight.weight / 1000).toFixed(2)} MT
+                  </span>
+                  <span
+                    className={`font-mono text-[10px] font-bold ${
+                      currentWeight.stable ? 'text-emerald-400' : 'text-amber-400 animate-pulse'
+                    }`}
+                  >
+                    {currentWeight.stable
+                      ? `${currentWeight.weight.toLocaleString()} KG (STABLE)`
+                      : `${currentWeight.weight.toLocaleString()} KG (MOTION)`}
+                  </span>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+});
 
 const Weighbridge = () => {
   const { currentWeight } = useWeighbridge();
@@ -59,49 +386,14 @@ const Weighbridge = () => {
     timestamp: string;
   } | null>(null);
 
-  // Dynamic Video & Canvas refs keyed by camera device ID
-  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
-  const activeHlsCleanupsRef = useRef<Record<string, () => void>>({});
-  const [hlsActiveMap, setHlsActiveMap] = useState<Record<string, boolean>>({});
+  // Registry of frame capture callbacks from camera cards
+  const captureMapRef = useRef<Record<string, () => string>>({});
+  const registerCapture = useCallback((camId: string, fn: () => string) => {
+    captureMapRef.current[camId] = fn;
+  }, []);
 
-  const animFrameId = useRef<number | null>(null);
   const lastDetectedFilenameRef = useRef<string | null>(null);
   const hasAlertedMatchRef = useRef<string | null>(null);
-
-  // Bulletproof callback ref: attaches HLS as soon as each video element mounts in the DOM
-  const setVideoRef = useCallback((cam: PlantCameraFeed, el: HTMLVideoElement | null) => {
-    videoRefs.current[cam.id] = el;
-    if (el) {
-      if (activeHlsCleanupsRef.current[cam.id]) {
-        activeHlsCleanupsRef.current[cam.id]();
-      }
-      activeHlsCleanupsRef.current[cam.id] = attachHlsStream({
-        video: el,
-        urlOrPair: resolveCameraHlsUrl(cam.hlsUrl || '', cam.id),
-        onConnected: () => {
-          setHlsActiveMap((prev) => ({ ...prev, [cam.id]: true }));
-        },
-        onError: () => {
-          setHlsActiveMap((prev) => ({ ...prev, [cam.id]: false }));
-        },
-        autoReconnect: true,
-      });
-    } else {
-      if (activeHlsCleanupsRef.current[cam.id]) {
-        activeHlsCleanupsRef.current[cam.id]();
-        delete activeHlsCleanupsRef.current[cam.id];
-      }
-    }
-  }, []);
-
-  // Cleanup all streams when component unmounts
-  useEffect(() => {
-    return () => {
-      Object.values(activeHlsCleanupsRef.current).forEach((fn) => fn && fn());
-      activeHlsCleanupsRef.current = {};
-    };
-  }, []);
 
   // Reset selected camera if plant cameras change and selected ID is no longer present
   useEffect(() => {
@@ -210,26 +502,8 @@ const Weighbridge = () => {
         const angle = angleForCamera(cam, idx);
         const labelPrefix = angle === 'front' ? 'Front' : angle === 'back' ? 'Back' : 'Top';
         const filename = `${labelPrefix}_${cam.id}_${timestamp}.jpg`;
-        const videoEl = videoRefs.current[cam.id];
-        const canvasEl = canvasRefs.current[cam.id];
-        const isHlsActive = Boolean(hlsActiveMap[cam.id]);
-
-        let imgData = "";
-        if (videoEl && isHlsActive) {
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(videoEl, 0, 0, 640, 360);
-              imgData = canvas.toDataURL('image/jpeg', 0.85);
-            }
-          } catch {}
-        }
-        if (!imgData && canvasEl) {
-          imgData = canvasEl.toDataURL('image/jpeg', 0.85);
-        }
+        const getImg = captureMapRef.current[cam.id];
+        let imgData = getImg ? getImg() : "";
         if (!imgData && cam.isANPR && ftpEvidence?.imageUrl) {
           imgData = ftpEvidence.imageUrl;
         }
@@ -304,105 +578,6 @@ const Weighbridge = () => {
     const interval = setInterval(() => handleGetVehicleNumber(false), 5000);
     return () => clearInterval(interval);
   }, [handleGetVehicleNumber]);
-
-  // Animate dynamic canvas simulation feeds when HLS stream is inactive
-  useEffect(() => {
-    if (cameras.length === 0) return;
-
-    const render = () => {
-      cameras.forEach((cam, idx) => {
-        const canvas = canvasRefs.current[cam.id];
-        if (!canvas || hlsActiveMap[cam.id]) return;
-        if (cam.isANPR && ftpEvidence) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        const w = 640;
-        const h = 360;
-
-        if (cam.isANPR || cam.rawLocation === 'entry') {
-          ctx.fillStyle = '#0f172a';
-          ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(0, 240, w, 120);
-          ctx.strokeStyle = '#e2e8f0';
-          ctx.lineWidth = 3;
-          ctx.setLineDash([20, 20]);
-          ctx.beginPath();
-          ctx.moveTo(320, 240);
-          ctx.lineTo(320, 360);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = '#334155';
-          ctx.fillRect(200, 120, 240, 160);
-          ctx.fillStyle = '#64748b';
-          ctx.fillRect(220, 130, 200, 70);
-          ctx.fillStyle = '#0284c7';
-          ctx.fillRect(230, 140, 180, 50);
-          ctx.fillStyle = '#fef08a';
-          ctx.beginPath();
-          ctx.arc(220, 220, 15, 0, Math.PI * 2);
-          ctx.arc(420, 220, 15, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(190, 240, 260, 45);
-          ctx.fillStyle = '#f8fafc';
-          ctx.fillRect(260, 250, 120, 26);
-          ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText(vehicleNumber || 'TN88F4089', 266, 268);
-          ctx.strokeStyle = '#22c55e';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(256, 246, 128, 34);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '11px sans-serif';
-          ctx.fillText(`CAM 0${idx + 1} • ${cam.name} • ${cam.ipAddress || ''}`, 10, 20);
-          ctx.fillStyle = '#22c55e';
-          ctx.fillText(`[OCR 99.2%] PLATE: ${vehicleNumber || 'TN88F4089'}`, 10, 36);
-        } else {
-          ctx.fillStyle = '#0b1120';
-          ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = '#1e293b';
-          ctx.fillRect(60, 30, 50, 130);
-          ctx.fillRect(125, 20, 50, 140);
-          ctx.fillRect(190, 40, 45, 120);
-          ctx.fillStyle = '#262d3d';
-          ctx.beginPath();
-          ctx.moveTo(180, 160);
-          ctx.lineTo(460, 160);
-          ctx.lineTo(600, 350);
-          ctx.lineTo(40, 350);
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#eab308';
-          ctx.fillRect(40, 335, 560, 12);
-          ctx.fillStyle = '#000000';
-          for (let i = 50; i < 600; i += 40) {
-            ctx.fillRect(i, 335, 18, 12);
-          }
-          ctx.fillStyle = '#475569';
-          ctx.fillRect(220, 170, 200, 90);
-          ctx.fillStyle = '#94a3b8';
-          ctx.beginPath();
-          ctx.ellipse(330, 210, 75, 32, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '11px sans-serif';
-          ctx.fillText(`CAM 0${idx + 1} • ${cam.name} • ${cam.ipAddress || ''}`, 10, 20);
-          ctx.fillStyle = '#10b981';
-          ctx.fillText(`SCALE: ${(currentWeight.weight / 1000).toFixed(2)} MT • ${currentWeight.stable ? 'STABLE' : 'MOTION'}`, 10, 36);
-        }
-      });
-
-      animFrameId.current = requestAnimationFrame(render);
-    };
-
-    animFrameId.current = requestAnimationFrame(render);
-
-    return () => {
-      if (animFrameId.current) cancelAnimationFrame(animFrameId.current);
-    };
-  }, [cameras, vehicleNumber, currentWeight, ftpEvidence, hlsActiveMap, driverName]);
 
   const handleImageError = () => {
     if (ftpEvidence && ftpEvidence.imageUrl.startsWith('/api')) {
@@ -496,128 +671,21 @@ const Weighbridge = () => {
                 : 'flex flex-col items-center'
             }
           >
-            {cameras.map((cam, idx) => {
-              const isVisible = selectedCamera === 'all' || selectedCamera === cam.id;
-              const isSingleFocused = selectedCamera === cam.id || cameras.length === 1;
-              const isHlsActive = Boolean(hlsActiveMap[cam.id]);
-              const showFtpOverlay = Boolean(cam.isANPR && ftpEvidence?.imageUrl);
-
-              return (
-                <div
-                  key={cam.id}
-                  className={`space-y-1.5 w-full ${isVisible ? 'block' : 'hidden'} ${isSingleFocused ? 'max-w-4xl mx-auto' : ''}`}
-                >
-                  <div className="flex justify-between items-center text-[11px]">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="font-bold text-slate-800 truncate">
-                        CAM 0{idx + 1}: {cam.name}
-                      </span>
-                      <span className="font-mono text-[10px] text-slate-500 font-semibold shrink-0">
-                        ({cam.ipAddress || cam.ip_address})
-                      </span>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[9px] flex items-center gap-1 shrink-0 ${
-                        isHlsActive || showFtpOverlay
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                          : 'bg-blue-50 text-blue-700 border-blue-300'
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          isHlsActive ? 'bg-emerald-600 animate-ping' : 'bg-blue-600 animate-pulse'
-                        }`}
-                      />
-                      <span>
-                        {showFtpOverlay
-                          ? 'FTP SNAPSHOT CAPTURED'
-                          : isHlsActive
-                          ? 'LIVE IP CAMERA'
-                          : cam.isANPR
-                          ? 'FTP AUTO-ANPR'
-                          : 'AUTO LIVE DETECT'}
-                      </span>
-                    </Badge>
-                  </div>
-
-                  <div className="relative rounded overflow-hidden border border-[#bca182] bg-slate-950 aspect-video shadow-inner group">
-                    {showFtpOverlay && ftpEvidence ? (
-                      <>
-                        <img
-                          src={ftpEvidence.imageUrl}
-                          alt={cam.name}
-                          className="w-full h-full object-cover"
-                          onError={handleImageError}
-                        />
-                        <div className="absolute top-1.5 left-1.5 bg-black/75 backdrop-blur-xs px-2 py-0.5 rounded text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                          <span>{cam.name} • CAPTURED</span>
-                        </div>
-                        <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/80 backdrop-blur-xs px-2 py-1 rounded text-[10px] text-white flex justify-between items-center">
-                          <span className="font-mono text-emerald-400 font-bold text-xs tracking-wider">
-                            {vehicleNumber || ftpEvidence.plate}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setPreviewImage(ftpEvidence.imageUrl)}
-                            className="text-[10px] text-amber-300 hover:text-amber-100 flex items-center gap-1 font-semibold cursor-pointer"
-                          >
-                            <Maximize2 className="h-3 w-3" />
-                            <span>Enlarge</span>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <video
-                          ref={(el) => setVideoRef(cam, el)}
-                          playsInline
-                          muted
-                          autoPlay
-                          className={`w-full h-full object-cover ${isHlsActive ? 'block' : 'hidden'}`}
-                        />
-                        <canvas
-                          ref={(el) => {
-                            canvasRefs.current[cam.id] = el;
-                          }}
-                          width={640}
-                          height={360}
-                          className={`w-full h-full object-cover ${isHlsActive ? 'hidden' : 'block'}`}
-                        />
-                        <div className="absolute bottom-1.5 left-1.5 right-1.5 bg-black/75 backdrop-blur-xs px-2 py-1 rounded text-[10px] text-white flex justify-between items-center">
-                          {cam.isANPR ? (
-                            <>
-                              <span className="font-mono text-emerald-400 font-bold">
-                                {vehicleNumber || (isHlsActive ? 'LIVE RTSP STREAM' : 'SEARCHING FTP...')}
-                              </span>
-                              <span className="text-slate-300 font-mono">
-                                {isHlsActive ? 'LIVE • RTSP' : cam.location}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="font-mono text-amber-300 font-bold">
-                                {cam.location} • {(currentWeight.weight / 1000).toFixed(2)} MT
-                              </span>
-                              <span
-                                className={`font-mono text-[10px] font-bold ${
-                                  currentWeight.stable ? 'text-emerald-400' : 'text-amber-400 animate-pulse'
-                                }`}
-                              >
-                                {currentWeight.stable
-                                  ? `${currentWeight.weight.toLocaleString()} KG (STABLE)`
-                                  : `${currentWeight.weight.toLocaleString()} KG (MOTION)`}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {cameras.map((cam, idx) => (
+              <WeighbridgeCameraCard
+                key={cam.id}
+                cam={cam}
+                idx={idx}
+                isVisible={selectedCamera === 'all' || selectedCamera === cam.id}
+                isSingleFocused={selectedCamera === cam.id || cameras.length === 1}
+                vehicleNumber={vehicleNumber}
+                currentWeight={currentWeight}
+                ftpEvidence={ftpEvidence}
+                onEnlargeImage={(url) => setPreviewImage(url)}
+                onRegisterCapture={registerCapture}
+                onImageError={handleImageError}
+              />
+            ))}
           </div>
         )}
 

@@ -22,11 +22,8 @@ export function useGateCameras() {
   const initializeGateCameras = useCallback(async () => {
     try {
       setInitialized(false);
-      // Fetch devices scoped to the active / assigned plant with automatic fallback
-      let dbCameras = await api.getCameras(effectivePlantId);
-      if (!Array.isArray(dbCameras) || dbCameras.length === 0) {
-        dbCameras = await api.getCameras('all');
-      }
+      // Fetch devices strictly scoped to the active / assigned plant
+      const dbCameras = await api.getCameras(effectivePlantId);
       
       if (Array.isArray(dbCameras)) {
         const formattedList: PlantCameraFeed[] = await Promise.all(
