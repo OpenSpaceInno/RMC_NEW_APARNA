@@ -70,25 +70,6 @@ services:
     networks:
       - rmc-network
 
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: aparna_rmc_phpmyadmin
-    restart: unless-stopped
-    environment:
-      PMA_HOST: db
-      PMA_PORT: 3306
-      PMA_USER: ${DB_USER:-rmc_user}
-      PMA_PASSWORD: ${DB_PASSWORD:-SecureRmcPassword2026!}
-      PMA_ARBITRARY: 1
-      UPLOAD_LIMIT: 128M
-    ports:
-      - "8081:80"
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - rmc-network
-
 volumes:
   rmc_mysql_data:
     driver: local
