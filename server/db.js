@@ -9,12 +9,19 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config(); // fallback to cwd .env as well
 
+// Database connection parameters with support for APARNA_ prefixed environment variables
+const DB_HOST = process.env.APARNA_DB_HOST || process.env.APARNA_HOST || process.env.DB_HOST || 'localhost';
+const DB_PORT = Number(process.env.APARNA_DB_PORT || process.env.APARNA_PORT || process.env.DB_PORT) || 3306;
+const DB_USER = process.env.APARNA_DB_USER || process.env.APARNA_USER || process.env.DB_USER || 'root';
+const DB_PASSWORD = process.env.APARNA_DB_PASSWORD || process.env.APARNA_PASSWORD || process.env.DB_PASSWORD || '';
+const DB_NAME = process.env.APARNA_DB_NAME || process.env.APARNA_NAME || process.env.DB_NAME || 'Aparna_RMC_Db';
+
 // Create connection pool (without database selection initially)
 const poolWithoutDb = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USER,
+  password: DB_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -22,11 +29,11 @@ const poolWithoutDb = mysql.createPool({
 
 // Create connection pool (with database)
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'Aparna_RMC_Db',
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -35,7 +42,7 @@ const pool = mysql.createPool({
 // Test connection
 async function testConnection() {
   try {
-    const dbName = process.env.DB_NAME || 'Aparna_RMC_Db';
+    const dbName = DB_NAME;
     // First, create database if it doesn't exist
     const connection = await poolWithoutDb.getConnection();
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
@@ -55,7 +62,7 @@ async function testConnection() {
 // Initialize database and tables
 async function initializeDatabase() {
   try {
-    const dbName = process.env.DB_NAME || 'Aparna_RMC_Db';
+    const dbName = DB_NAME;
     const connection = await poolWithoutDb.getConnection();
     
     // Create database if it doesn't exist

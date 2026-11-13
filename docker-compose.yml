@@ -10,11 +10,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DB_HOST=${DB_HOST:-db}
-      - DB_PORT=${DB_PORT:-3306}
-      - DB_USER=${DB_USER:-rmc_user}
-      - DB_PASSWORD=${DB_PASSWORD:-SecureRmcPassword2026!}
-      - DB_NAME=${DB_NAME:-Aparna_RMC_Db}
+      - DB_HOST=${APARNA_DB_HOST:-${APARNA_HOST:-${DB_HOST:-db}}}
+      - DB_PORT=${APARNA_DB_PORT:-${DB_PORT:-3306}}
+      - DB_USER=${APARNA_DB_USER:-${DB_USER:-rmc_user}}
+      - DB_PASSWORD=${APARNA_DB_PASSWORD:-${DB_PASSWORD:-SecureRmcPassword2026!}}
+      - DB_NAME=${APARNA_DB_NAME:-${APARNA_NAME:-${DB_NAME:-Aparna_RMC_Db}}}
       - MEDIAMTX_HOST=mediamtx
       - MEDIAMTX_PORT=8888
       - SFTPGO_HOST=${SFTPGO_HOST:-213.210.37.249}
@@ -54,7 +54,7 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-RootSecurePass2026!}
-      MYSQL_DATABASE: ${DB_NAME:-Aparna_RMC_Db}
+      MYSQL_DATABASE: ${APARNA_DB_NAME:-${APARNA_NAME:-${DB_NAME:-Aparna_RMC_Db}}}
       MYSQL_USER: ${DB_USER:-rmc_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-SecureRmcPassword2026!}
     ports:
