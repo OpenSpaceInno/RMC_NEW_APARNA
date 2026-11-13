@@ -28,6 +28,8 @@ export async function runUsersMigration() {
       password_hash VARCHAR(255) NOT NULL,
       role_id VARCHAR(64) NOT NULL,
       role_name VARCHAR(128) NOT NULL,
+      plant_id VARCHAR(64) DEFAULT 'PL01',
+      plant_name VARCHAR(128) DEFAULT 'Plant 01 • Shamshabad Central',
       phone VARCHAR(32),
       department VARCHAR(64),
       shift VARCHAR(64),
@@ -37,9 +39,18 @@ export async function runUsersMigration() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_users_role (role_id),
+      INDEX idx_users_plant (plant_id),
       INDEX idx_users_status (status)
     )
   `);
+
+  // Ensure plant_id & plant_name columns exist on pre-existing users tables
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN plant_id VARCHAR(64) DEFAULT 'PL01'`);
+  } catch (e) {}
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN plant_name VARCHAR(128) DEFAULT 'Plant 01 • Shamshabad Central'`);
+  } catch (e) {}
   console.log('✅ Created table: users');
 
   await seedUsersAndRoles();

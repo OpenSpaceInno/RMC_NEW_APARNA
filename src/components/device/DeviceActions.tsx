@@ -19,6 +19,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 interface DeviceActionsProps {
   device: CameraDevice;
+  plantName?: string;
   onReboot: () => Promise<void>;
   onExportConfig?: (device: CameraDevice) => void;
   onDeleteDevice?: (deviceId: string) => void;
@@ -29,6 +30,7 @@ interface DeviceActionsProps {
 
 export function DeviceActions({
   device,
+  plantName,
   onReboot,
   onExportConfig,
   onDeleteDevice,
@@ -117,6 +119,12 @@ export function DeviceActions({
 
         {/* Device Info */}
         <div className="space-y-2 pt-4 border-t border-border">
+          <div className="flex justify-between text-sm gap-2">
+            <span className="text-muted-foreground shrink-0">Plant</span>
+            <span className="font-medium text-right truncate" title={plantName || device.plantId || 'PL01'}>
+              {plantName || device.plantId || 'PL01'}
+            </span>
+          </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Model</span>
             <span className="font-medium">{device.model}</span>

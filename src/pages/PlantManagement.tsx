@@ -278,7 +278,7 @@ export default function PlantManagement() {
               {activePlant?.code || 'PLANT_001'}
             </div>
             <p className="text-xs text-muted-foreground mt-1 truncate">
-              {activePlant?.name.split('•')[1]?.trim() || 'Shamshabad Central'}
+              {activePlant?.name.split('•')[1]?.trim() || activePlant?.name || 'All Plants'}
             </p>
           </CardContent>
         </Card>

@@ -5,13 +5,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   ArrowRightLeft, 
   LogOut, 
-  ShieldCheck, 
-  Clock, 
-  Building,
-  User as UserIcon,
   Factory
 } from "lucide-react";
 
@@ -20,7 +23,7 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { user, role, logout, switchRole, activePlant, plants, switchPlant } = useAuth();
+  const { user, role, isSuperAdmin, logout, activePlant, plants, switchPlant, refreshPlants } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -31,18 +34,10 @@ export function Layout({ children }: LayoutProps) {
 
   const roleColor = user?.roleColor || role?.color || '#8b5cf6';
   const roleName = user?.roleName || role?.name || 'Operator';
-  const activeRoleId = user?.roleId || role?.id || 'admin';
 
   const handleLogout = () => {
     logout();
     navigate('/login');
-  };
-
-  const handleRoleSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newRoleId = e.target.value;
-    if (newRoleId && newRoleId !== activeRoleId) {
-      await switchRole(newRoleId);
-    }
   };
 
   return (
@@ -59,23 +54,34 @@ export function Layout({ children }: LayoutProps) {
                   RMC Operations
                 </h1>
                 
-                {/* Multi-Plant Selector for Admin or Plant Badge for Operator */}
-                {activeRoleId === 'admin' ? (
-                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 text-xs text-amber-300 border border-amber-500/30">
-                    <Factory className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                    <span className="font-semibold text-amber-200 hidden md:inline">Plant:</span>
-                    <select
-                      value={activePlant?.id || 'PL01'}
-                      onChange={(e) => switchPlant(e.target.value)}
-                      className="bg-transparent text-xs font-semibold text-amber-300 focus:outline-none cursor-pointer pr-1"
-                      title="Admin: Switch Monitored Plant Terminal"
+                {/* Plant Dropdown (All Plants + DB Plants) for Super Admin, Locked Badge for Plant Users */}
+                {isSuperAdmin ? (
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={activePlant?.id || 'all'}
+                      onValueChange={switchPlant}
+                      onOpenChange={(open) => {
+                        if (open) refreshPlants();
+                      }}
                     >
-                      {plants.map((p) => (
-                        <option key={p.id} value={p.id} className="bg-popover text-popover-foreground">
-                          {p.name} ({p.code})
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        className="h-8 min-w-[190px] max-w-[300px] bg-amber-500/10 border-amber-500/30 text-amber-200 text-xs font-semibold gap-1.5"
+                        title="Select Plant (All Plants or specific plant from database)"
+                      >
+                        <Factory className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <SelectValue placeholder="All Plants" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          All Plants (Default)
+                        </SelectItem>
+                        {plants.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} ({p.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : (
                   <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 text-xs text-foreground border border-border/60">
@@ -116,21 +122,6 @@ export function Layout({ children }: LayoutProps) {
                       title={`${user.name} (${roleName})`}
                     >
                       {user.name ? user.name.slice(0, 2).toUpperCase() : 'OP'}
-                    </div>
-
-                    {/* Quick Interactive Role Switcher Dropdown */}
-                    <div className="flex items-center gap-1.5 bg-muted/70 hover:bg-muted px-2 py-1 rounded-md border border-border/80 transition-colors">
-                      <ShieldCheck className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-[11px] text-muted-foreground hidden lg:inline font-medium">Active:</span>
-                      <select
-                        value={activeRoleId}
-                        onChange={handleRoleSelect}
-                        className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer pr-1"
-                        title="Switch Active Operational Role (Admin / Plant Manager, Weighbridge In-charge)"
-                      >
-                        <option value="admin" className="bg-popover text-popover-foreground">👑 Admin / Plant Manager</option>
-                        <option value="weighbridge_operator" className="bg-popover text-popover-foreground">⚖️ Weighbridge In-charge</option>
-                      </select>
                     </div>
 
                     <Button

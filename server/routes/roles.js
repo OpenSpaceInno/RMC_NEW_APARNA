@@ -1,5 +1,6 @@
 import express from 'express';
 import { pool } from '../db.js';
+import { getRequestUser, isSuperAdminUser } from '../auth-security.js';
 
 const router = express.Router();
 
@@ -36,14 +37,20 @@ export const formatRole = (r) => ({
 // GET /api/roles
 router.get('/', async (req, res) => {
   try {
+    const caller = await getRequestUser(req);
+    const allowedIds = (caller && !isSuperAdminUser(caller))
+      ? ['weighbridge_operator']
+      : ['super_admin', 'plant_user', 'weighbridge_operator'];
+    const placeholders = allowedIds.map(() => '?').join(', ');
+
     const [rows] = await pool.query(`
       SELECT r.*, COUNT(u.id) as user_count 
       FROM roles r 
       LEFT JOIN users u ON r.id = u.role_id 
-      WHERE r.id IN ('admin', 'weighbridge_operator')
+      WHERE r.id IN (${placeholders})
       GROUP BY r.id 
-      ORDER BY r.is_system DESC, r.name ASC
-    `);
+      ORDER BY FIELD(r.id, 'super_admin', 'plant_user', 'weighbridge_operator'), r.name ASC
+    `, allowedIds);
     res.json(rows.map(formatRole));
   } catch (error) {
     res.status(500).json({ error: error.message });

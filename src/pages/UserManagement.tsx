@@ -54,15 +54,21 @@ import {
 import { toast } from 'sonner';
 
 export default function UserManagement() {
-  const { user: currentUser, plants: contextPlants } = useAuth();
+  const { user: currentUser, plants: contextPlants, activePlant, isSuperAdmin } = useAuth();
   const plants = (contextPlants && contextPlants.length > 0) ? contextPlants : DEFAULT_PLANTS;
+  const userPlantId = (currentUser?.plantId && currentUser.plantId !== 'all')
+    ? currentUser.plantId
+    : (activePlant?.id || plants[0]?.id || 'PL01');
+  const userPlantObj = plants.find(p => p.id === userPlantId);
+  const userPlantName = userPlantObj?.name || currentUser?.plantName || activePlant?.name || 'Plant 01 • Shamshabad Central';
+
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
-  const [selectedPlantFilter, setSelectedPlantFilter] = useState<string>('all');
+  const [selectedPlantFilter, setSelectedPlantFilter] = useState<string>(isSuperAdmin ? 'all' : userPlantId);
 
   // Modal dialog states
   const [dialogOpen, setDialogOpen] = useState<boolean>(false);
@@ -77,22 +83,32 @@ export default function UserManagement() {
     email: '',
     phone: '',
     roleId: 'weighbridge_operator',
-    plantId: 'PL01',
-    plantName: 'Plant 01 • Shamshabad Central',
+    plantId: userPlantId,
+    plantName: userPlantName,
     department: 'Operations',
     shift: 'General (09:00 - 18:00)',
     status: 'active' as 'active' | 'inactive' | 'suspended',
     password: '',
   });
 
+  useEffect(() => {
+    setSelectedPlantFilter(isSuperAdmin ? (activePlant?.id || 'all') : userPlantId);
+  }, [isSuperAdmin, activePlant?.id, userPlantId]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const [usersData, rolesData] = await Promise.all([
-        api.getUsers(),
+        api.getUsers(isSuperAdmin ? undefined : { plantId: userPlantId }),
         api.getRoles(),
       ]);
-      setUsers(usersData || []);
+      const rawUsers = usersData || [];
+      const scopedUsers = isSuperAdmin
+        ? rawUsers
+        : rawUsers.filter(
+            (u) => u.plantId === userPlantId && u.roleId !== 'super_admin' && u.roleId !== 'admin'
+          );
+      setUsers(scopedUsers);
       setRoles(rolesData || []);
     } catch (err: any) {
       toast.error('Failed to load user management data', {
@@ -105,18 +121,21 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [isSuperAdmin, userPlantId]);
 
   const handleOpenAddDialog = () => {
+    const defaultRole = 'weighbridge_operator';
+    const defaultPlantId = isSuperAdmin ? (plants[0]?.id || 'PL01') : userPlantId;
+    const defaultPlantName = plants.find(p => p.id === defaultPlantId)?.name || userPlantName;
     setEditingUser(null);
     setFormData({
       username: '',
       name: '',
       email: '',
       phone: '',
-      roleId: 'weighbridge_operator',
-      plantId: 'PL01',
-      plantName: 'Plant 01 • Shamshabad Central',
+      roleId: defaultRole,
+      plantId: defaultPlantId,
+      plantName: defaultPlantName,
       department: 'Quality & Weighment',
       shift: 'General (09:00 - 18:00)',
       status: 'active',
@@ -127,14 +146,20 @@ export default function UserManagement() {
 
   const handleOpenEditDialog = (user: User) => {
     setEditingUser(user);
+    const resolvedPlantId = isSuperAdmin
+      ? (user.plantId || (user.roleId === 'super_admin' || user.roleId === 'admin' ? 'all' : 'PL01'))
+      : userPlantId;
+    const resolvedPlantName = resolvedPlantId === 'all'
+      ? 'All Plants (Super Admin)'
+      : (plants.find(p => p.id === resolvedPlantId)?.name || user.plantName || userPlantName);
     setFormData({
       username: user.username,
       name: user.name,
       email: user.email,
       phone: user.phone || '',
-      roleId: user.roleId,
-      plantId: user.plantId || (user.roleId === 'admin' ? 'all' : 'PL01'),
-      plantName: user.plantName || (user.roleId === 'admin' ? 'All Plants (Global Admin)' : 'Plant 01 • Shamshabad Central'),
+      roleId: isSuperAdmin ? user.roleId : 'weighbridge_operator',
+      plantId: resolvedPlantId,
+      plantName: resolvedPlantName,
       department: user.department || 'Operations',
       shift: user.shift || 'General',
       status: user.status,
@@ -226,13 +251,15 @@ export default function UserManagement() {
     const matchesSearch = 
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (u.phone && u.phone.includes(searchQuery)) ||
       (u.plantName && u.plantName.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesRole = selectedRoleFilter === 'all' || u.roleId === selectedRoleFilter;
     const matchesStatus = selectedStatusFilter === 'all' || u.status === selectedStatusFilter;
-    const matchesPlant = selectedPlantFilter === 'all' || u.plantId === selectedPlantFilter || (selectedPlantFilter !== 'all' && u.plantId === 'all');
+    const matchesPlant = isSuperAdmin
+      ? (selectedPlantFilter === 'all' || u.plantId === selectedPlantFilter)
+      : u.plantId === userPlantId;
 
     return matchesSearch && matchesRole && matchesStatus && matchesPlant;
   });
@@ -242,6 +269,7 @@ export default function UserManagement() {
   const activeUsers = users.filter(u => u.status === 'active').length;
   const totalRolesCount = roles.length;
   const departmentsCount = new Set(users.map(u => u.department).filter(Boolean)).size;
+  const visiblePlantsCount = isSuperAdmin ? plants.length : 1;
 
   return (
     <div className="space-y-6">
@@ -313,8 +341,10 @@ export default function UserManagement() {
             <Factory className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-amber-400">{plants.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">RMC plant terminals network</p>
+            <div className="text-2xl font-bold text-amber-400">{visiblePlantsCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {isSuperAdmin ? 'RMC plant terminals network' : userPlantName}
+            </p>
           </CardContent>
         </Card>
 
@@ -346,21 +376,28 @@ export default function UserManagement() {
             </div>
 
             {/* Plant Filter */}
-            <div className="w-full md:w-52">
-              <Select value={selectedPlantFilter} onValueChange={setSelectedPlantFilter}>
-                <SelectTrigger className="bg-background/80">
-                  <SelectValue placeholder="Filter by Plant" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Plants ({plants.length})</SelectItem>
-                  {plants.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name.split('•')[0]?.trim()} ({p.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isSuperAdmin ? (
+              <div className="w-full md:w-52">
+                <Select value={selectedPlantFilter} onValueChange={setSelectedPlantFilter}>
+                  <SelectTrigger className="bg-background/80">
+                    <SelectValue placeholder="Filter by Plant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Plants ({plants.length})</SelectItem>
+                    {plants.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name.split('•')[0]?.trim()} ({p.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border/70 bg-muted/40 text-xs font-medium text-foreground">
+                <Factory className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <span className="truncate max-w-[180px]">{userPlantName}</span>
+              </div>
+            )}
 
             {/* Role Filter */}
             <div className="w-full md:w-48">
@@ -526,32 +563,42 @@ export default function UserManagement() {
 
                       {/* Status */}
                       <TableCell>
-                        <button
-                          onClick={() => handleToggleStatus(user)}
-                          title="Click to toggle status"
-                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium transition-all hover:opacity-80"
-                          style={{
-                            backgroundColor: 
-                              user.status === 'active' ? 'rgba(16, 185, 129, 0.15)' :
-                              user.status === 'suspended' ? 'rgba(239, 68, 68, 0.15)' :
-                              'rgba(148, 163, 184, 0.15)',
-                            color: 
-                              user.status === 'active' ? '#10b981' :
-                              user.status === 'suspended' ? '#ef4444' :
-                              '#94a3b8',
-                          }}
-                        >
-                          <span 
-                            className="h-1.5 w-1.5 rounded-full" 
-                            style={{ 
-                              backgroundColor: 
-                                user.status === 'active' ? '#10b981' :
-                                user.status === 'suspended' ? '#ef4444' :
-                                '#94a3b8' 
-                            }} 
-                          />
-                          <span className="capitalize">{user.status}</span>
-                        </button>
+                        {(() => {
+                          const canManageRow =
+                            isSuperAdmin ||
+                            (user.roleId === 'weighbridge_operator' && user.plantId === userPlantId);
+                          return (
+                            <button
+                              onClick={() => canManageRow && handleToggleStatus(user)}
+                              disabled={!canManageRow}
+                              title={canManageRow ? 'Click to toggle status' : 'Status managed by Super Admin'}
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
+                                canManageRow ? 'hover:opacity-80 cursor-pointer' : 'opacity-80 cursor-default'
+                              }`}
+                              style={{
+                                backgroundColor: 
+                                  user.status === 'active' ? 'rgba(16, 185, 129, 0.15)' :
+                                  user.status === 'suspended' ? 'rgba(239, 68, 68, 0.15)' :
+                                  'rgba(148, 163, 184, 0.15)',
+                                color: 
+                                  user.status === 'active' ? '#10b981' :
+                                  user.status === 'suspended' ? '#ef4444' :
+                                  '#94a3b8',
+                              }}
+                            >
+                              <span 
+                                className="h-1.5 w-1.5 rounded-full" 
+                                style={{ 
+                                  backgroundColor: 
+                                    user.status === 'active' ? '#10b981' :
+                                    user.status === 'suspended' ? '#ef4444' :
+                                    '#94a3b8' 
+                                }} 
+                              />
+                              <span className="capitalize">{user.status}</span>
+                            </button>
+                          );
+                        })()}
                       </TableCell>
 
                       {/* Last Activity */}
@@ -568,30 +615,43 @@ export default function UserManagement() {
 
                       {/* Actions */}
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenEditDialog(user)}
-                            className="h-8 w-8 p-0"
-                            title="Edit User"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={user.id === 'usr_admin' || user.id === currentUser?.id}
-                            onClick={() => {
-                              setUserToDelete(user);
-                              setDeleteConfirmOpen(true);
-                            }}
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
-                            title="Delete User"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
+                        {(() => {
+                          const canManageRow =
+                            isSuperAdmin ||
+                            (user.roleId === 'weighbridge_operator' && user.plantId === userPlantId);
+                          const isProtectedRoot =
+                            user.id === 'usr_admin' ||
+                            user.id === 'USR-001' ||
+                            user.id === 'USR-SUPER-001' ||
+                            user.id === currentUser?.id;
+                          return (
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!canManageRow}
+                                onClick={() => handleOpenEditDialog(user)}
+                                className="h-8 w-8 p-0"
+                                title={canManageRow ? 'Edit User' : 'Only Weighbridge Operators in your plant can be edited'}
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!canManageRow || isProtectedRoot}
+                                onClick={() => {
+                                  setUserToDelete(user);
+                                  setDeleteConfirmOpen(true);
+                                }}
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-red-400"
+                                title={canManageRow ? 'Delete User' : 'Cannot delete this account'}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   );
@@ -667,15 +727,21 @@ export default function UserManagement() {
               <div className="space-y-1.5">
                 <Label htmlFor="u-role" className="text-xs">Operational Role *</Label>
                 <Select 
-                  value={formData.roleId} 
+                  value={isSuperAdmin ? formData.roleId : 'weighbridge_operator'}
+                  disabled={!isSuperAdmin}
                   onValueChange={(val) => {
-                    const newPlantId = val === 'admin' ? 'all' : (formData.plantId === 'all' ? 'PL01' : formData.plantId);
+                    const fallbackPlantId = plants[0]?.id || 'PL01';
+                    const newPlantId = val === 'super_admin'
+                      ? 'all'
+                      : (formData.plantId === 'all' ? fallbackPlantId : formData.plantId);
                     const foundPlant = plants.find(p => p.id === newPlantId);
                     setFormData({ 
                       ...formData, 
                       roleId: val,
                       plantId: newPlantId,
-                      plantName: val === 'admin' && newPlantId === 'all' ? 'All Plants (Global Admin)' : (foundPlant?.name || 'Plant 01 • Shamshabad Central')
+                      plantName: val === 'super_admin' && newPlantId === 'all'
+                        ? 'All Plants (Super Admin)'
+                        : (foundPlant?.name || 'Plant 01 • Shamshabad Central')
                     });
                   }}
                 >
@@ -683,32 +749,48 @@ export default function UserManagement() {
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
-                        <span>👑 Admin / Plant Manager</span>
-                      </div>
-                    </SelectItem>
+                    {isSuperAdmin && (
+                      <>
+                        <SelectItem value="super_admin">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
+                            <span>Super Admin</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="plant_user">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                            <span>Plant User</span>
+                          </div>
+                        </SelectItem>
+                      </>
+                    )}
                     <SelectItem value="weighbridge_operator">
                       <div className="flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                        <span>⚖️ Weighbridge In-charge</span>
+                        <span>Weighbridge In-charge / Operator</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                {!isSuperAdmin && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Plant users can only create Weighbridge Operator accounts.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="u-plant" className="text-xs">Assigned Plant *</Label>
                 <Select 
-                  value={formData.plantId} 
+                  value={isSuperAdmin ? formData.plantId : userPlantId}
+                  disabled={!isSuperAdmin}
                   onValueChange={(val) => {
                     const selectedPlant = plants.find(p => p.id === val);
                     setFormData({ 
                       ...formData, 
                       plantId: val,
-                      plantName: val === 'all' ? 'All Plants (Global Admin)' : (selectedPlant?.name || 'Plant 01 • Shamshabad Central')
+                      plantName: val === 'all' ? 'All Plants (Super Admin)' : (selectedPlant?.name || 'Plant 01 • Shamshabad Central')
                     });
                   }}
                 >
@@ -716,7 +798,7 @@ export default function UserManagement() {
                     <SelectValue placeholder="Select plant" />
                   </SelectTrigger>
                   <SelectContent>
-                    {formData.roleId === 'admin' && (
+                    {isSuperAdmin && formData.roleId === 'super_admin' && (
                       <SelectItem value="all">
                         <div className="flex items-center gap-2">
                           <Factory className="h-3 w-3 text-purple-400" />

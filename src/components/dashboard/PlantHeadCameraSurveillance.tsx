@@ -89,10 +89,13 @@ const DEFAULT_CAMERAS: CameraTile[] = [
 ];
 
 export function PlantHeadCameraSurveillance() {
-  const { user, role } = useAuth();
+  const { user, role, activePlant, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
+  const effectivePlantId = isSuperAdmin
+    ? (activePlant?.id || 'all')
+    : (user?.plantId && user.plantId !== 'all' ? user.plantId : (activePlant?.id || 'PL01'));
 
-  const [allCameras, setAllCameras] = useState<CameraTile[]>(DEFAULT_CAMERAS);
+  const [allCameras, setAllCameras] = useState<CameraTile[]>([]);
   const [activeLayout, setActiveLayout] = useState<string>('grid'); // 'grid' or camera id
   const [streamStatuses, setStreamStatuses] = useState<Record<string, 'connecting' | 'connected' | 'simulated'>>({});
   const [currentTime, setCurrentTime] = useState<string>(new Date().toLocaleTimeString());
@@ -119,11 +122,11 @@ export function PlantHeadCameraSurveillance() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch cameras dynamically from backend API & resolve streaming configs
+  // Fetch cameras dynamically from backend API scoped to the active / assigned plant
   const fetchCameras = useCallback(async () => {
     try {
-      const serverCams = await api.getCameras();
-      if (Array.isArray(serverCams) && serverCams.length > 0) {
+      const serverCams = await api.getCameras(effectivePlantId);
+      if (Array.isArray(serverCams)) {
         const platesPool = [
           'MH 12 RN 4501', 
           'KA 04 MM 9123', 
@@ -213,11 +216,11 @@ export function PlantHeadCameraSurveillance() {
         return;
       }
     } catch (e) {
-      console.warn('API getCameras fallback to defaults:', e);
+      console.warn('API getCameras error:', e);
     }
 
-    setAllCameras(DEFAULT_CAMERAS);
-  }, []);
+    setAllCameras([]);
+  }, [effectivePlantId]);
 
   useEffect(() => {
     fetchCameras();

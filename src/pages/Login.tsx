@@ -25,22 +25,15 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
 export default function Login() {
-  const { login, isLoading, plants, activePlant, switchPlant } = useAuth();
+  const { login, isLoading, plants, switchPlant } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
-  const [selectedPlantId, setSelectedPlantId] = useState<string>(activePlant?.id || 'PL01');
+  const [username, setUsername] = useState('superadmin');
+  const [password, setPassword] = useState('superadmin123');
+  const [selectedPlantId, setSelectedPlantId] = useState<string>('all');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Sync with active plant if it changes
-  useEffect(() => {
-    if (activePlant?.id) {
-      setSelectedPlantId(activePlant.id);
-    }
-  }, [activePlant]);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,11 +59,15 @@ export default function Login() {
     }
   };
 
-  const fillQuickPreset = (userType: 'admin' | 'weigh_op' | 'miyapur_op') => {
+  const fillQuickPreset = (userType: 'super_admin' | 'plant_pl01' | 'weigh_op' | 'miyapur_op') => {
     setErrorMessage(null);
-    if (userType === 'admin') {
-      setUsername('admin');
-      setPassword('admin123');
+    if (userType === 'super_admin') {
+      setUsername('superadmin');
+      setPassword('superadmin123');
+      setSelectedPlantId('all');
+    } else if (userType === 'plant_pl01') {
+      setUsername('plant_pl01');
+      setPassword('plant123');
       setSelectedPlantId('PL01');
       switchPlant('PL01');
     } else if (userType === 'weigh_op') {
@@ -251,11 +248,17 @@ export default function Login() {
                       id="plant-select"
                       value={selectedPlantId}
                       onChange={(e) => {
-                        setSelectedPlantId(e.target.value);
-                        switchPlant(e.target.value);
+                        const val = e.target.value;
+                        setSelectedPlantId(val);
+                        if (val !== 'all') {
+                          switchPlant(val);
+                        }
                       }}
                       className="w-full bg-slate-950/90 border border-slate-800 hover:border-slate-700 text-white rounded-xl py-2.5 pl-10 pr-4 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all cursor-pointer shadow-inner"
                     >
+                      <option value="all" className="bg-slate-900 text-amber-300 py-1">
+                        All Plants (Super Admin Terminal)
+                      </option>
                       {plants.map((p) => (
                         <option key={p.id} value={p.id} className="bg-slate-900 text-white py-1">
                           {p.name} ({p.code}) • {p.city}
@@ -338,45 +341,49 @@ export default function Login() {
                 {/* Quick Preset Selector with Designated Plant Terminals */}
                 <div className="pt-3 border-t border-slate-800/80">
                   <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2">
-                    <span className="font-medium text-slate-400">Quick Test Credentials (3-Way Verification):</span>
+                    <span className="font-medium text-slate-400">Quick Test Credentials (Role & Plant Scoped):</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     <button
                       type="button"
-                      onClick={() => fillQuickPreset('admin')}
+                      onClick={() => fillQuickPreset('super_admin')}
                       className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
-                        username === 'admin' 
+                        username === 'superadmin' 
                           ? 'bg-purple-950/40 border-purple-500/50 text-purple-200 shadow-md shadow-purple-950/50' 
                           : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
-                        <span className="font-bold text-[11px] truncate">Admin</span>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex items-center gap-1.5 font-bold text-[11px] truncate">
+                          <ShieldCheck className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+                          Super Admin
+                        </span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 bg-purple-500/10 border-purple-500/30 text-purple-300">
+                          All Plants
+                        </Badge>
                       </div>
-                      <div className="mt-1 text-[10px] text-slate-400 font-mono">admin123</div>
-                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-purple-500/10 border-purple-500/30 text-purple-300 w-fit">
-                        Plant PL01
-                      </Badge>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">superadmin / superadmin123</div>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => fillQuickPreset('weigh_op')}
+                      onClick={() => fillQuickPreset('plant_pl01')}
                       className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
-                        username === 'weigh_op' 
-                          ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 shadow-md shadow-emerald-950/50' 
+                        username === 'plant_pl01' 
+                          ? 'bg-sky-950/40 border-sky-500/50 text-sky-200 shadow-md shadow-sky-950/50' 
                           : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <Scale className="h-3.5 w-3.5 text-emerald-400" />
-                        <span className="font-bold text-[11px] truncate">Weigh Op</span>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex items-center gap-1.5 font-bold text-[11px] truncate">
+                          <Factory className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                          Plant User
+                        </span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 bg-sky-500/10 border-sky-500/30 text-sky-300">
+                          Plant PL01
+                        </Badge>
                       </div>
-                      <div className="mt-1 text-[10px] text-slate-400 font-mono">weigh123</div>
-                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-emerald-500/10 border-emerald-500/30 text-emerald-300 w-fit">
-                        Plant PL01
-                      </Badge>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">plant_pl01 / plant123</div>
                     </button>
 
                     <button
@@ -388,14 +395,37 @@ export default function Login() {
                           : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
                       }`}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <Factory className="h-3.5 w-3.5 text-blue-400" />
-                        <span className="font-bold text-[11px] truncate">Miyapur</span>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex items-center gap-1.5 font-bold text-[11px] truncate">
+                          <Factory className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                          Miyapur Plant
+                        </span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 bg-blue-500/10 border-blue-500/30 text-blue-300">
+                          Plant PL02
+                        </Badge>
                       </div>
-                      <div className="mt-1 text-[10px] text-slate-400 font-mono">plant123</div>
-                      <Badge variant="outline" className="mt-1.5 text-[9px] px-1 py-0 bg-blue-500/10 border-blue-500/30 text-blue-300 w-fit">
-                        Plant PL02
-                      </Badge>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">op_miyapur / plant123</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => fillQuickPreset('weigh_op')}
+                      className={`text-left p-2 rounded-xl border transition-all flex flex-col justify-between ${
+                        username === 'weigh_op' 
+                          ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 shadow-md shadow-emerald-950/50' 
+                          : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/50 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex items-center gap-1.5 font-bold text-[11px] truncate">
+                          <Scale className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          Weigh Op
+                        </span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 bg-emerald-500/10 border-emerald-500/30 text-emerald-300">
+                          Plant PL01
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400 font-mono">weigh_op / weigh123</div>
                     </button>
                   </div>
                 </div>

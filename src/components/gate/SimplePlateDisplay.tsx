@@ -251,6 +251,11 @@ export function SimplePlateDisplay({
                     <div className="font-mono text-xs text-foreground truncate font-medium" title={ftpUploadInfo.filename}>
                       {ftpUploadInfo.filename}
                     </div>
+                    {ftpUploadInfo.remotePath && ftpUploadInfo.remotePath !== ftpUploadInfo.filename && (
+                      <div className="font-mono text-[10px] text-muted-foreground truncate" title={ftpUploadInfo.remotePath}>
+                        Folder: {ftpUploadInfo.remotePath}
+                      </div>
+                    )}
                   </div>
                 )}
 

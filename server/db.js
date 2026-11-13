@@ -74,6 +74,7 @@ async function initializeDatabase() {
         name VARCHAR(255) NOT NULL,
         model VARCHAR(100) NOT NULL,
         location VARCHAR(50) NOT NULL,
+        plant_id VARCHAR(64) NOT NULL DEFAULT 'PL01',
         ip_address VARCHAR(45) NOT NULL,
         mac_address VARCHAR(17),
         status VARCHAR(20) NOT NULL DEFAULT 'offline',
@@ -84,6 +85,7 @@ async function initializeDatabase() {
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_device_id (device_id),
         INDEX idx_location (location),
+        INDEX idx_plant_id (plant_id),
         INDEX idx_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
@@ -95,6 +97,34 @@ async function initializeDatabase() {
       `);
     } catch (e) {
       // Column may already exist or MariaDB/MySQL version syntax fallback
+    }
+
+    try {
+      const [plantCols] = await dbConnection.query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'camera_devices' AND COLUMN_NAME = 'plant_id'`,
+        [dbName]
+      );
+      if (plantCols.length === 0) {
+        await dbConnection.query(`
+          ALTER TABLE camera_devices
+          ADD COLUMN plant_id VARCHAR(64) NOT NULL DEFAULT 'PL01'
+        `);
+      }
+      await dbConnection.query(`
+        UPDATE camera_devices SET plant_id = 'PL01' WHERE plant_id IS NULL OR plant_id = ''
+      `);
+
+      const [camCount] = await dbConnection.query('SELECT COUNT(*) as cnt FROM camera_devices');
+      if (camCount[0]?.cnt === 0) {
+        await dbConnection.query(`
+          INSERT INTO camera_devices (device_id, name, model, location, plant_id, ip_address, mac_address, status, firmware, show_on_dashboard, last_seen)
+          VALUES
+            ('cam_gate_1', 'Main Gate - Entry ANPR Camera', 'Hikvision / ANPR Smart Cam', 'entry', 'PL01', '192.168.0.101', 'AA:BB:CC:DD:EE:01', 'online', 'V5.5.800', TRUE, NOW()),
+            ('cam_gate_2', 'Main Gate - Overview Camera', 'Hikvision / IP Network Cam', 'exit', 'PL01', '192.168.0.99', 'AA:BB:CC:DD:EE:02', 'online', 'V5.5.800', TRUE, NOW())
+        `);
+      }
+    } catch (e) {
+      console.warn('Note checking camera_devices.plant_id column:', e.message);
     }
     
     // Create device_rtsp_config table
@@ -135,6 +165,23 @@ async function initializeDatabase() {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (device_id) REFERENCES camera_devices(device_id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // Create anpr_evidence table for FTP evidence images
+    await dbConnection.query(`
+      CREATE TABLE IF NOT EXISTS anpr_evidence (
+        id VARCHAR(100) PRIMARY KEY,
+        event_id VARCHAR(100),
+        evidence_type VARCHAR(50) DEFAULT 'IMAGE',
+        url TEXT,
+        thumbnail_url TEXT,
+        angle VARCHAR(50) DEFAULT 'overview',
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        metadata JSON,
+        file_size INT DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     

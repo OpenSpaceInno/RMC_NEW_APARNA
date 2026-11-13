@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CameraDevice } from '@/types/deviceConfig';
+import { Plant, DEFAULT_PLANTS } from '@/types/plant';
+import { usePlantFtpFolders } from '@/hooks/usePlantFtpFolders';
+import { EditDeviceDialog } from '@/components/device/EditDeviceDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,12 +11,14 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Camera, RefreshCw, Wifi, WifiOff, Settings, Plus, LayoutDashboard, Pencil } from 'lucide-react';
+import { Camera, RefreshCw, Wifi, WifiOff, Settings, Plus, LayoutDashboard, Pencil, Factory } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 
 interface DeviceListProps {
   devices: CameraDevice[];
+  plants?: Plant[];
+  selectedPlantId?: string;
   selectedDevice: CameraDevice | null;
   onSelectDevice: (device: CameraDevice) => void;
   onRefresh: () => void;
@@ -25,6 +30,8 @@ interface DeviceListProps {
 
 export function DeviceList({
   devices,
+  plants = DEFAULT_PLANTS,
+  selectedPlantId = 'all',
   selectedDevice,
   onSelectDevice,
   onRefresh,
@@ -33,25 +40,33 @@ export function DeviceList({
   onToggleDashboard,
   isLoading,
 }: DeviceListProps) {
+  const plantOptions = plants.length > 0 ? plants : DEFAULT_PLANTS;
+  const defaultPlantForNew =
+    selectedPlantId && selectedPlantId !== 'all'
+      ? selectedPlantId
+      : (plantOptions[0]?.id || 'PL01');
+
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
   const [newModel, setNewModel] = useState('GV-DNC564-MV');
-  const [newLocation, setNewLocation] = useState<'entry' | 'exit' | 'weighbridge'>('entry');
+  const [newLocation, setNewLocation] = useState<string>('entry');
+  const [newPlantId, setNewPlantId] = useState(defaultPlantForNew);
   const [newIp, setNewIp] = useState('192.168.0.175');
   const [newMac, setNewMac] = useState('AA:BB:CC:DD:EE:05');
   const [newShowOnDashboard, setNewShowOnDashboard] = useState(true);
 
+  const { folders: ftpFolders, plantFolder, loading: loadingFolders } = usePlantFtpFolders(newPlantId, isAddOpen);
+
+  useEffect(() => {
+    if (ftpFolders.length > 0 && !ftpFolders.some((f) => f.value === newLocation)) {
+      setNewLocation(ftpFolders[0].value);
+    }
+  }, [ftpFolders, newLocation]);
+
   // Edit Device State
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<CameraDevice | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editModel, setEditModel] = useState('');
-  const [editLocation, setEditLocation] = useState<'entry' | 'exit' | 'weighbridge'>('entry');
-  const [editIp, setEditIp] = useState('');
-  const [editMac, setEditMac] = useState('');
-  const [editFirmware, setEditFirmware] = useState('');
-  const [editShowOnDashboard, setEditShowOnDashboard] = useState(true);
 
   const getStatusColor = (status: CameraDevice['status']) => {
     switch (status) {
@@ -81,33 +96,21 @@ export function DeviceList({
     }
   };
 
+  const getPlantLabel = (plantId?: string) => {
+    const id = plantId && plantId !== 'all' ? plantId : 'PL01';
+    const match = plantOptions.find((p) => p.id === id);
+    return match ? match.name : id;
+  };
+
+  const handleOpenAdd = () => {
+    setNewPlantId(defaultPlantForNew);
+    setIsAddOpen(true);
+  };
+
   const handleOpenEdit = (dev: CameraDevice, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setEditingDevice(dev);
-    setEditName(dev.name);
-    setEditModel(dev.model);
-    setEditLocation(dev.location);
-    setEditIp(dev.ipAddress);
-    setEditMac(dev.macAddress);
-    setEditFirmware(dev.firmware);
-    setEditShowOnDashboard(dev.showOnDashboard !== false);
     setIsEditOpen(true);
-  };
-
-  const handleEditSubmit = async () => {
-    if (!editingDevice || !editName.trim() || !onUpdateDevice) return;
-    await onUpdateDevice({
-      ...editingDevice,
-      name: editName.trim(),
-      model: editModel.trim() || editingDevice.model,
-      location: editLocation,
-      ipAddress: editIp.trim() || editingDevice.ipAddress,
-      macAddress: editMac.trim() || editingDevice.macAddress,
-      firmware: editFirmware.trim() || editingDevice.firmware,
-      showOnDashboard: editShowOnDashboard,
-    });
-    setIsEditOpen(false);
-    setEditingDevice(null);
   };
 
   const handleAddSubmit = async () => {
@@ -118,6 +121,7 @@ export function DeviceList({
       name: newName.trim(),
       model: newModel.trim() || 'GV-DNC564-MV',
       location: newLocation,
+      plantId: newPlantId,
       ipAddress: newIp.trim() || '192.168.0.175',
       macAddress: newMac.trim() || 'AA:BB:CC:DD:EE:05',
       firmware: '2.3.1',
@@ -143,7 +147,7 @@ export function DeviceList({
                 variant="outline"
                 size="sm"
                 className="h-8 px-2"
-                onClick={() => setIsAddOpen(true)}
+                onClick={handleOpenAdd}
                 title="Register New Camera"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -202,6 +206,14 @@ export function DeviceList({
               </div>
               
               <div className="space-y-1 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-2">
+                  <span className="flex items-center gap-1 shrink-0">
+                    <Factory className="h-3 w-3 text-amber-400/80" /> Plant:
+                  </span>
+                  <span className="text-foreground truncate text-right" title={getPlantLabel(device.plantId)}>
+                    {getPlantLabel(device.plantId)}
+                  </span>
+                </div>
                 <div className="flex justify-between">
                   <span>Model:</span>
                   <span className="text-foreground">{device.model}</span>
@@ -257,7 +269,9 @@ export function DeviceList({
           {devices.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <Camera className="h-10 w-10 mx-auto mb-2 opacity-50" />
-              <p className="text-sm font-medium">No devices found</p>
+              <p className="text-sm font-medium">
+                {selectedPlantId !== 'all' ? 'No cameras in this plant' : 'No devices found'}
+              </p>
               <p className="text-xs">Click refresh or + to register a camera</p>
             </div>
           )}
@@ -285,6 +299,22 @@ export function DeviceList({
               />
             </div>
 
+            <div className="space-y-1">
+              <Label className="text-xs">Assigned Plant *</Label>
+              <Select value={newPlantId} onValueChange={setNewPlantId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Plant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {plantOptions.map((plant) => (
+                    <SelectItem key={plant.id} value={plant.id}>
+                      {plant.name} ({plant.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="cam-id" className="text-xs">Device ID</Label>
@@ -297,19 +327,27 @@ export function DeviceList({
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Location</Label>
-                <Select value={newLocation} onValueChange={(v) => setNewLocation(v as any)}>
+                <Label className="text-xs">Location (FTP Folder) *</Label>
+                <Select value={newLocation} onValueChange={setNewLocation} disabled={loadingFolders}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={loadingFolders ? 'Loading FTP folders...' : 'Select Location Folder'} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="entry">Entry Gate</SelectItem>
-                    <SelectItem value="exit">Exit Gate</SelectItem>
-                    <SelectItem value="weighbridge">Weighbridge</SelectItem>
+                    {ftpFolders.map((folder) => (
+                      <SelectItem key={folder.value} value={folder.value}>
+                        {folder.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
+            {plantFolder && (
+              <div className="px-2.5 py-1.5 rounded bg-muted/50 border border-border/60 text-[11px] font-mono text-muted-foreground truncate">
+                FTP Folder: /{plantFolder}/{ftpFolders.find((f) => f.value === newLocation)?.folderName || 'Entry Gate'}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -372,125 +410,18 @@ export function DeviceList({
       </Dialog>
 
       {/* Edit Camera Modal Dialog */}
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-4 w-4 text-primary" />
-              Edit Camera Configuration
-            </DialogTitle>
-            <DialogDescription>
-              Update network properties, location, and dashboard visibility for this ANPR camera.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3.5 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="edit-cam-id" className="text-xs text-muted-foreground">Device ID (Hardware Identifier)</Label>
-              <Input
-                id="edit-cam-id"
-                value={editingDevice?.id || ''}
-                disabled
-                className="bg-muted/50 font-mono text-xs cursor-not-allowed"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="edit-cam-name" className="text-xs">Camera Name *</Label>
-              <Input
-                id="edit-cam-name"
-                value={editName}
-                placeholder="e.g. Weighbridge Bay 2 ANPR"
-                onChange={(e) => setEditName(e.target.value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Location</Label>
-                <Select value={editLocation} onValueChange={(v) => setEditLocation(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="entry">Entry Gate</SelectItem>
-                    <SelectItem value="exit">Exit Gate</SelectItem>
-                    <SelectItem value="weighbridge">Weighbridge</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="edit-cam-model" className="text-xs">Camera Model</Label>
-                <Input
-                  id="edit-cam-model"
-                  value={editModel}
-                  placeholder="e.g. GV-DNC564-MV"
-                  onChange={(e) => setEditModel(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="edit-cam-ip" className="text-xs">IP Address *</Label>
-                <Input
-                  id="edit-cam-ip"
-                  value={editIp}
-                  placeholder="192.168.0.101"
-                  onChange={(e) => setEditIp(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="edit-cam-mac" className="text-xs">MAC Address</Label>
-                <Input
-                  id="edit-cam-mac"
-                  value={editMac}
-                  placeholder="AA:BB:CC:DD:EE:05"
-                  onChange={(e) => setEditMac(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="edit-cam-firmware" className="text-xs">Firmware Version</Label>
-              <Input
-                id="edit-cam-firmware"
-                value={editFirmware}
-                placeholder="e.g. 2.3.1"
-                onChange={(e) => setEditFirmware(e.target.value)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-3 rounded-lg border border-border/70 bg-accent/30">
-              <div className="space-y-0.5">
-                <Label htmlFor="edit-cam-dashboard" className="text-xs font-semibold flex items-center gap-1.5">
-                  <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
-                  Show on Operations Dashboard
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Stream live feed on the real-time CCTV surveillance wall
-                </p>
-              </div>
-              <Switch
-                id="edit-cam-dashboard"
-                checked={editShowOnDashboard}
-                onCheckedChange={setEditShowOnDashboard}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleEditSubmit} disabled={!editName.trim()}>
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {onUpdateDevice && (
+        <EditDeviceDialog
+          device={editingDevice}
+          plants={plantOptions}
+          isOpen={isEditOpen}
+          onClose={() => {
+            setIsEditOpen(false);
+            setEditingDevice(null);
+          }}
+          onSave={onUpdateDevice}
+        />
+      )}
     </>
   );
 }

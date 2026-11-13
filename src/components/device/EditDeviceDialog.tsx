@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { CameraDevice } from '@/types/deviceConfig';
+import { Plant, DEFAULT_PLANTS } from '@/types/plant';
+import { usePlantFtpFolders } from '@/hooks/usePlantFtpFolders';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
-import { Pencil, LayoutDashboard, Settings } from 'lucide-react';
+import { Pencil, LayoutDashboard } from 'lucide-react';
 
 interface EditDeviceDialogProps {
   device: CameraDevice | null;
+  plants?: Plant[];
   isOpen: boolean;
   onClose: () => void;
   onSave: (device: CameraDevice) => Promise<void>;
@@ -17,30 +20,45 @@ interface EditDeviceDialogProps {
 
 export function EditDeviceDialog({
   device,
+  plants = DEFAULT_PLANTS,
   isOpen,
   onClose,
   onSave,
 }: EditDeviceDialogProps) {
   const [name, setName] = useState('');
   const [model, setModel] = useState('');
-  const [location, setLocation] = useState<'entry' | 'exit' | 'weighbridge'>('entry');
+  const [location, setLocation] = useState<string>('entry');
+  const [plantId, setPlantId] = useState('PL01');
   const [ipAddress, setIpAddress] = useState('');
   const [macAddress, setMacAddress] = useState('');
   const [firmware, setFirmware] = useState('');
   const [showOnDashboard, setShowOnDashboard] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const { folders: ftpFolders, plantFolder, loading: loadingFolders } = usePlantFtpFolders(plantId, isOpen);
+
+  useEffect(() => {
+    if (ftpFolders.length > 0 && !ftpFolders.some((f) => f.value === location)) {
+      setLocation(ftpFolders[0].value);
+    }
+  }, [ftpFolders, location]);
+
+  const plantOptions = plants.length > 0 ? plants : DEFAULT_PLANTS;
+
+  const defaultPlantId = plantOptions[0]?.id || 'PL01';
+
   useEffect(() => {
     if (device) {
       setName(device.name || '');
       setModel(device.model || 'GV-DNC564-MV');
       setLocation(device.location || 'entry');
+      setPlantId(device.plantId && device.plantId !== 'all' ? device.plantId : defaultPlantId);
       setIpAddress(device.ipAddress || '');
       setMacAddress(device.macAddress || '');
       setFirmware(device.firmware || '2.3.1');
       setShowOnDashboard(device.showOnDashboard !== false);
     }
-  }, [device, isOpen]);
+  }, [device, isOpen, defaultPlantId]);
 
   const handleSubmit = async () => {
     if (!device || !name.trim()) return;
@@ -51,6 +69,7 @@ export function EditDeviceDialog({
         name: name.trim(),
         model: model.trim() || device.model,
         location,
+        plantId,
         ipAddress: ipAddress.trim() || device.ipAddress,
         macAddress: macAddress.trim() || device.macAddress,
         firmware: firmware.trim() || device.firmware,
@@ -102,17 +121,35 @@ export function EditDeviceDialog({
             />
           </div>
 
+          <div className="space-y-1">
+            <Label className="text-xs font-medium">Assigned Plant</Label>
+            <Select value={plantId} onValueChange={setPlantId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select Plant" />
+              </SelectTrigger>
+              <SelectContent>
+                {plantOptions.map((plant) => (
+                  <SelectItem key={plant.id} value={plant.id}>
+                    {plant.name} ({plant.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs font-medium">Operational Location</Label>
-              <Select value={location} onValueChange={(v) => setLocation(v as any)}>
+              <Label className="text-xs font-medium">Location (FTP Folder)</Label>
+              <Select value={location} onValueChange={setLocation} disabled={loadingFolders}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder={loadingFolders ? 'Loading...' : 'Select Location Folder'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="entry">Entry Gate</SelectItem>
-                  <SelectItem value="exit">Exit Gate</SelectItem>
-                  <SelectItem value="weighbridge">Weighbridge</SelectItem>
+                  {ftpFolders.map((folder) => (
+                    <SelectItem key={folder.value} value={folder.value}>
+                      {folder.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -127,6 +164,12 @@ export function EditDeviceDialog({
               />
             </div>
           </div>
+
+          {plantFolder && (
+            <div className="px-2.5 py-1.5 rounded bg-muted/50 border border-border/60 text-[11px] font-mono text-muted-foreground truncate">
+              FTP Folder: /{plantFolder}/{ftpFolders.find((f) => f.value === location)?.folderName || 'Entry Gate'}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">

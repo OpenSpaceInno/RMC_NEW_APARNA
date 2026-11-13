@@ -530,7 +530,7 @@ export function LiveFeedViewer({
               </>
             ) : (
               <>
-                {feedMode === 'simulated' && (
+                {feedMode === 'simulated' ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -540,6 +540,17 @@ export function LiveFeedViewer({
                   >
                     <Video className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">Go Live</span>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1 border-sky-500/40 text-sky-400 bg-sky-950/30 hover:bg-sky-900/40 cursor-pointer"
+                    onClick={handleStartSimulation}
+                    title="Switch to Demo / Simulation Feed"
+                  >
+                    <Tv className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Demo Feed</span>
                   </Button>
                 )}
                 <Button

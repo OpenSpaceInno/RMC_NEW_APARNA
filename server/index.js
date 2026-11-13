@@ -10,6 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, '../dist');
 import { pool, testConnection, initializeDatabase } from './db.js';
+import { getRequestUser, isSuperAdminUser } from './auth-security.js';
 import anprProcessor from './anpr-processor.js';
 import multer from 'multer';
 import net from 'net';
@@ -35,7 +36,10 @@ import rolesRouter from './routes/roles.js';
 import plantsRouter from './routes/plants.js';
 import sapRouter from './routes/sap.js';
 import ftpRouter from './routes/ftp.js';
+import syncRouter from './routes/sync.js';
+import ftpService from './ftp-service.js';
 import scaleService from './scale-service.js';
+import cloudSyncService from './cloud-sync-service.js';
 import cameraStreamService from './camera-stream-service.js';
 import edgeANPREngine from './edge-anpr.js';
 import { runCompleteMigration } from './migrations/run_migration.js';
@@ -158,6 +162,7 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/sap', sapRouter);
 app.use('/api/ftp', ftpRouter);
+app.use('/api/sync', syncRouter);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -198,9 +203,23 @@ app.get('/api/db-status', async (req, res) => {
 
 // ==================== CAMERA DEVICES ====================
 
-// Get all camera devices
+// Get all camera devices (optionally filtered by plant_id; plant users strictly scoped to own plant)
 app.get('/api/cameras', async (req, res) => {
   try {
+    const caller = await getRequestUser(req);
+    let effectivePlantId = req.query.plant_id;
+
+    if (caller && !isSuperAdminUser(caller)) {
+      effectivePlantId = caller.plant_id || 'PL01';
+    }
+
+    if (effectivePlantId && effectivePlantId !== 'all') {
+      const [rows] = await pool.query(
+        "SELECT * FROM camera_devices WHERE COALESCE(NULLIF(plant_id, ''), 'PL01') = ? ORDER BY created_at",
+        [effectivePlantId]
+      );
+      return res.json(rows);
+    }
     const [rows] = await pool.query('SELECT * FROM camera_devices ORDER BY created_at');
     res.json(rows);
   } catch (error) {
@@ -245,9 +264,16 @@ app.post('/api/cameras/test-probe', async (req, res) => {
 // Get single camera device
 app.get('/api/cameras/:deviceId', async (req, res) => {
   try {
+    const caller = await getRequestUser(req);
     const [rows] = await pool.query('SELECT * FROM camera_devices WHERE device_id = ?', [req.params.deviceId]);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Camera not found' });
+    }
+    if (caller && !isSuperAdminUser(caller)) {
+      const camPlant = rows[0].plant_id || 'PL01';
+      if (camPlant !== (caller.plant_id || 'PL01')) {
+        return res.status(403).json({ error: 'Camera does not belong to your assigned plant' });
+      }
     }
     res.json(rows[0]);
   } catch (error) {
@@ -295,13 +321,20 @@ app.get('/api/cameras/diagnostic/:ip', async (req, res) => {
 // Create camera device
 app.post('/api/cameras', async (req, res) => {
   try {
-    const { device_id, name, model, location, ip_address, mac_address, status, firmware, show_on_dashboard = true } = req.body;
+    const { device_id, name, model, location, plant_id, ip_address, mac_address, status, firmware, show_on_dashboard = true } = req.body;
+    const normalizedPlantId = (plant_id && plant_id !== 'all') ? plant_id : 'PL01';
     const [result] = await pool.query(
-      `INSERT INTO camera_devices (device_id, name, model, location, ip_address, mac_address, status, firmware, show_on_dashboard, last_seen) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [device_id, name, model, location, ip_address, mac_address, status || 'offline', firmware, show_on_dashboard ? 1 : 0]
+      `INSERT INTO camera_devices (device_id, name, model, location, plant_id, ip_address, mac_address, status, firmware, show_on_dashboard, last_seen) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [device_id, name, model, location, normalizedPlantId, ip_address, mac_address, status || 'offline', firmware, show_on_dashboard ? 1 : 0]
     );
-    res.status(201).json({ success: true, device_id, show_on_dashboard: Boolean(show_on_dashboard) });
+    ftpService.ensureCameraFolder({
+      plantId: normalizedPlantId,
+      location,
+      cameraName: name,
+      deviceId: device_id
+    }).catch((err) => console.warn('FTP camera folder sync warning:', err.message));
+    res.status(201).json({ success: true, device_id, plant_id: normalizedPlantId, show_on_dashboard: Boolean(show_on_dashboard) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -310,9 +343,14 @@ app.post('/api/cameras', async (req, res) => {
 // Update camera device
 app.put('/api/cameras/:deviceId', async (req, res) => {
   try {
-    const { name, model, location, ip_address, mac_address, status, firmware, show_on_dashboard } = req.body;
+    const { name, model, location, plant_id, ip_address, mac_address, status, firmware, show_on_dashboard } = req.body;
     const updates = ['name = ?', 'model = ?', 'location = ?', 'ip_address = ?', 'mac_address = ?', 'status = ?', 'firmware = ?', 'last_seen = NOW()'];
     const params = [name, model, location, ip_address, mac_address, status, firmware];
+
+    if (plant_id !== undefined && plant_id !== '' && plant_id !== 'all') {
+      updates.push('plant_id = ?');
+      params.push(plant_id);
+    }
 
     if (show_on_dashboard !== undefined) {
       updates.push('show_on_dashboard = ?');
@@ -327,6 +365,12 @@ app.put('/api/cameras/:deviceId', async (req, res) => {
        WHERE device_id = ?`,
       params
     );
+    ftpService.ensureCameraFolder({
+      plantId: (plant_id && plant_id !== 'all') ? plant_id : undefined,
+      location,
+      cameraName: name,
+      deviceId: req.params.deviceId
+    }).catch((err) => console.warn('FTP camera folder update warning:', err.message));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -889,6 +933,17 @@ async function startServer() {
     await runSapMigration().catch(err => console.error('SAP migration warning:', err.message));
     await runOutboundSapMigration().catch(err => console.error('Outbound SAP migration warning:', err.message));
     await runProductionSapMigration().catch(err => console.error('Production SAP migration warning:', err.message));
+    // Ensure FTP folders (<Plant Name>/Entry Gate & Exit Gate & camera subfolders) exist for all plants and route any pending camera root files
+    ftpService.syncAllPlantFolders()
+      .then(async () => {
+        let round = 0;
+        let result = { moved: 0, remaining: 0 };
+        do {
+          result = await ftpService.routeIncomingCameraFiles({ maxFiles: 100 });
+          round++;
+        } while (result.remaining > 0 && round < 10);
+      })
+      .catch(err => console.warn('FTP plant folders sync notice:', err.message));
   }
   
   const httpServer = http.createServer(app);
@@ -901,6 +956,9 @@ async function startServer() {
 
   // Initialize Automated Plant Camera Bridge (auto-starts detached streams on plant machine)
   cameraStreamService.ensurePlantBridgesRunning().catch(e => console.warn('Plant bridge notice:', e.message));
+
+  // Initialize Edge-to-Cloud Automatic Database Sync Service
+  cloudSyncService.initialize().catch(e => console.warn('Cloud sync service notice:', e.message));
 
   httpServer.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);

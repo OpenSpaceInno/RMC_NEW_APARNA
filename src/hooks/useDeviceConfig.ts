@@ -19,6 +19,7 @@ const DEFAULT_DEVICES: CameraDevice[] = [
     name: 'ANPR Camera (192.168.0.100)',
     model: 'Hikvision / ANPR Smart Cam',
     location: 'entry',
+    plantId: 'PL01',
     ipAddress: '192.168.0.100',
     macAddress: 'AA:BB:CC:DD:EE:01',
     status: 'online',
@@ -30,6 +31,7 @@ const DEFAULT_DEVICES: CameraDevice[] = [
     name: 'IP Camera (192.168.0.99)',
     model: 'Hikvision / IP Network Cam',
     location: 'exit',
+    plantId: 'PL01',
     ipAddress: '192.168.0.99',
     macAddress: 'AA:BB:CC:DD:EE:02',
     status: 'online',
@@ -41,6 +43,7 @@ const DEFAULT_DEVICES: CameraDevice[] = [
     name: 'Weighbridge Bay Camera',
     model: 'GV-DNC564-MV',
     location: 'weighbridge',
+    plantId: 'PL01',
     ipAddress: '192.168.0.170',
     macAddress: 'AA:BB:CC:DD:EE:03',
     status: 'online',
@@ -52,6 +55,7 @@ const DEFAULT_DEVICES: CameraDevice[] = [
     name: 'Slump Inspection & Batching Bay',
     model: 'GV-DNC564-MV',
     location: 'entry',
+    plantId: 'PL01',
     ipAddress: '192.168.0.171',
     macAddress: 'AA:BB:CC:DD:EE:04',
     status: 'online',
@@ -150,16 +154,9 @@ const defaultFtpConfig: FtpConfig = {
   webAdminUrl: 'http://sftpgo-zkiu7thmtlpwpdojnucvhahr.213.210.37.249.sslip.io/web/admin/users',
 };
 
-export function useDeviceConfig() {
+export function useDeviceConfig(plantId: string = 'all') {
   const { toast } = useToast();
-  const [devices, setDevices] = useState<CameraDevice[]>(() => {
-    try {
-      const stored = localStorage.getItem('rmc_camera_devices');
-      return stored ? JSON.parse(stored) : DEFAULT_DEVICES;
-    } catch {
-      return DEFAULT_DEVICES;
-    }
-  });
+  const [devices, setDevices] = useState<CameraDevice[]>([]);
 
   const [selectedDevice, setSelectedDevice] = useState<CameraDevice | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -174,25 +171,30 @@ export function useDeviceConfig() {
   const [ftpConfig, setFtpConfig] = useState<FtpConfig>(defaultFtpConfig);
   const [isTestingFtp, setIsTestingFtp] = useState(false);
 
-  // Sync devices to localStorage
+  // Sync full devices list to localStorage only when viewing all plants
   useEffect(() => {
+    if (plantId !== 'all') return;
     try {
       localStorage.setItem('rmc_camera_devices', JSON.stringify(devices));
     } catch (e) {
       console.error('Failed to cache devices:', e);
     }
-  }, [devices]);
+  }, [devices, plantId]);
 
-  // Load devices on mount from Express API with fallback
-  const loadDevices = useCallback(async () => {
+  // Load devices for the selected plant from Express API (fetches only that plant's cameras)
+  const loadDevices = useCallback(async (targetPlantId: string = plantId) => {
+    setIsLoading(true);
+    setDevices([]);
+    setSelectedDevice(null);
     try {
-      const serverDevices = await api.getCameras();
-      if (Array.isArray(serverDevices) && serverDevices.length > 0) {
+      const serverDevices = await api.getCameras(targetPlantId);
+      if (Array.isArray(serverDevices)) {
         const mapped: CameraDevice[] = serverDevices.map((d: any) => ({
           id: d.device_id || d.id,
           name: d.name,
           model: d.model || 'GV-DNC564-MV',
           location: (d.location || 'entry') as 'entry' | 'exit' | 'weighbridge',
+          plantId: d.plant_id || 'PL01',
           ipAddress: d.ip_address || '192.168.0.168',
           macAddress: d.mac_address || 'AA:BB:CC:DD:EE:01',
           status: (d.status || 'online') as 'online' | 'offline' | 'configuring' | 'error',
@@ -201,26 +203,26 @@ export function useDeviceConfig() {
           showOnDashboard: d.show_on_dashboard !== undefined ? Boolean(d.show_on_dashboard) : true,
         }));
         setDevices(mapped);
+        setSelectedDevice(prev => {
+          if (!prev) return null;
+          return mapped.find(m => m.id === prev.id) || null;
+        });
         return mapped;
       }
     } catch (error) {
-      console.warn('Backend /api/cameras offline or returned error; using local storage:', error);
+      console.warn('Backend /api/cameras offline or returned error:', error);
+    } finally {
+      setIsLoading(false);
     }
 
-    // Fallback to local storage or defaults
-    const cached = localStorage.getItem('rmc_camera_devices');
-    const fallbackList = cached ? JSON.parse(cached) : DEFAULT_DEVICES;
-    setDevices(fallbackList);
-    return fallbackList;
-  }, []);
+    setDevices([]);
+    setSelectedDevice(null);
+    return [];
+  }, [plantId]);
 
   useEffect(() => {
-    loadDevices().then((devList) => {
-      if (devList && devList.length > 0 && !selectedDevice) {
-        selectDevice(devList[0]);
-      }
-    });
-  }, []); // Run once on mount
+    loadDevices(plantId);
+  }, [plantId, loadDevices]);
 
   // Load configurations for a given device
   const loadDeviceConfig = useCallback(async (deviceId: string, deviceIp?: string) => {
@@ -330,9 +332,11 @@ export function useDeviceConfig() {
     }
   }, []);
 
-  const selectDevice = useCallback((device: CameraDevice) => {
+  const selectDevice = useCallback((device: CameraDevice | null) => {
     setSelectedDevice(device);
-    loadDeviceConfig(device.id, device.ipAddress);
+    if (device) {
+      loadDeviceConfig(device.id, device.ipAddress);
+    }
   }, [loadDeviceConfig]);
 
   const refreshDevices = useCallback(async () => {
@@ -720,8 +724,10 @@ export function useDeviceConfig() {
 
   // Add Device
   const addDevice = useCallback(async (newDev: Omit<CameraDevice, 'lastSeen' | 'status'>) => {
+    const normalizedPlantId = newDev.plantId && newDev.plantId !== 'all' ? newDev.plantId : 'PL01';
     const fullDevice: CameraDevice = {
       ...newDev,
+      plantId: normalizedPlantId,
       status: 'online',
       lastSeen: new Date().toISOString(),
       showOnDashboard: newDev.showOnDashboard !== false,
@@ -733,6 +739,7 @@ export function useDeviceConfig() {
         name: fullDevice.name,
         model: fullDevice.model,
         location: fullDevice.location,
+        plant_id: normalizedPlantId,
         ip_address: fullDevice.ipAddress,
         mac_address: fullDevice.macAddress,
         status: 'online',
@@ -743,8 +750,10 @@ export function useDeviceConfig() {
       console.warn('API createCamera fallback to localStorage:', e);
     }
 
-    setDevices(prev => [...prev, fullDevice]);
-    setSelectedDevice(fullDevice);
+    if (plantId === 'all' || normalizedPlantId === plantId) {
+      setDevices(prev => [...prev, fullDevice]);
+      setSelectedDevice(fullDevice);
+    }
 
     try {
       window.dispatchEvent(new CustomEvent('rmc-camera-updated', {
@@ -767,41 +776,51 @@ export function useDeviceConfig() {
       title: 'Camera Device Registered',
       description: `Successfully added ${fullDevice.name} to plant device registry${fullDevice.showOnDashboard ? ' and Dashboard' : ''}.`,
     });
-  }, [toast]);
+  }, [plantId, toast]);
 
   // Update Existing Device
   const updateDevice = useCallback(async (updatedDev: CameraDevice) => {
     setIsLoading(true);
+    const normalizedPlantId = updatedDev.plantId && updatedDev.plantId !== 'all' ? updatedDev.plantId : 'PL01';
+    const normalizedDev: CameraDevice = { ...updatedDev, plantId: normalizedPlantId };
 
     try {
-      await api.updateCamera(updatedDev.id, {
-        name: updatedDev.name,
-        model: updatedDev.model,
-        location: updatedDev.location,
-        ip_address: updatedDev.ipAddress,
-        mac_address: updatedDev.macAddress,
-        status: updatedDev.status,
-        firmware: updatedDev.firmware,
-        show_on_dashboard: updatedDev.showOnDashboard !== false,
+      await api.updateCamera(normalizedDev.id, {
+        name: normalizedDev.name,
+        model: normalizedDev.model,
+        location: normalizedDev.location,
+        plant_id: normalizedPlantId,
+        ip_address: normalizedDev.ipAddress,
+        mac_address: normalizedDev.macAddress,
+        status: normalizedDev.status,
+        firmware: normalizedDev.firmware,
+        show_on_dashboard: normalizedDev.showOnDashboard !== false,
       });
     } catch (e) {
       console.warn('API updateCamera fallback to localStorage:', e);
     }
 
-    setDevices(prev => prev.map(d => d.id === updatedDev.id ? updatedDev : d));
-    if (selectedDevice?.id === updatedDev.id) {
-      setSelectedDevice(updatedDev);
+    if (plantId !== 'all' && normalizedPlantId !== plantId) {
+      setDevices(prev => prev.filter(d => d.id !== normalizedDev.id));
+      if (selectedDevice?.id === normalizedDev.id) {
+        setSelectedDevice(null);
+      }
+    } else {
+      setDevices(prev => prev.map(d => d.id === normalizedDev.id ? normalizedDev : d));
+      if (selectedDevice?.id === normalizedDev.id) {
+        setSelectedDevice(normalizedDev);
+      }
     }
 
     try {
       window.dispatchEvent(new CustomEvent('rmc-camera-updated', {
-        detail: { deviceId: updatedDev.id, showOnDashboard: updatedDev.showOnDashboard !== false }
+        detail: { deviceId: normalizedDev.id, showOnDashboard: normalizedDev.showOnDashboard !== false }
       }));
       window.dispatchEvent(new CustomEvent('rmc-audit-event', {
         detail: {
           action: 'DEVICE_MODIFIED',
           module: 'Device Configuration',
-          description: `Updated configuration parameters for ${updatedDev.name} (${updatedDev.ipAddress})`,
+          description: `Updated configuration parameters for ${normalizedDev.name} (${normalizedDev.ipAddress})`,
           user: 'System Admin',
           timestamp: new Date().toISOString(),
         }
@@ -813,9 +832,9 @@ export function useDeviceConfig() {
     setIsLoading(false);
     toast({
       title: 'Device Configuration Saved',
-      description: `Successfully updated ${updatedDev.name}.`,
+      description: `Successfully updated ${normalizedDev.name}.`,
     });
-  }, [selectedDevice, toast]);
+  }, [plantId, selectedDevice, toast]);
 
   // Toggle Camera on/off Operations Dashboard
   const toggleCameraDashboard = useCallback(async (deviceId: string, show: boolean) => {
@@ -856,12 +875,7 @@ export function useDeviceConfig() {
 
     setDevices(prev => prev.filter(d => d.id !== deviceId));
     if (selectedDevice?.id === deviceId) {
-      const remaining = devices.filter(d => d.id !== deviceId);
-      if (remaining.length > 0) {
-        selectDevice(remaining[0]);
-      } else {
-        setSelectedDevice(null);
-      }
+      setSelectedDevice(null);
     }
 
     try {
@@ -882,7 +896,7 @@ export function useDeviceConfig() {
       title: 'Device Removed',
       description: `Camera ${dev?.name || deviceId} deleted from configuration.`,
     });
-  }, [devices, selectedDevice, selectDevice, toast]);
+  }, [devices, selectedDevice, toast]);
 
   // Export Device Configuration as JSON file
   const exportDeviceConfig = useCallback((device: CameraDevice) => {

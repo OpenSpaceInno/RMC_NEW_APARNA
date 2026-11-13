@@ -2,7 +2,8 @@ export interface CameraDevice {
   id: string;
   name: string;
   model: string;
-  location: 'entry' | 'exit' | 'weighbridge';
+  location: 'entry' | 'exit' | 'weighbridge' | string;
+  plantId?: string;
   ipAddress: string;
   macAddress: string;
   status: 'online' | 'offline' | 'configuring' | 'error';

@@ -19,7 +19,7 @@ export function ProtectedRoute({
   requiredRole, 
   requiredPermission 
 }: ProtectedRouteProps) {
-  const { user, role, isAuthenticated, isLoading, hasAccess, hasPermission } = useAuth();
+  const { user, role, isAuthenticated, isSuperAdmin, isLoading, hasAccess, hasPermission } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -45,7 +45,7 @@ export function ProtectedRoute({
   const authorizedByPath = hasAccess(checkPath);
 
   // Check specific role requirement if specified
-  const authorizedByRole = requiredRole ? (user.roleId === requiredRole || user.roleId === 'admin') : true;
+  const authorizedByRole = requiredRole ? (user.roleId === requiredRole || isSuperAdmin) : true;
 
   // Check specific permission if specified
   const authorizedByPermission = requiredPermission ? hasPermission(requiredPermission) : true;

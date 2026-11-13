@@ -1,5 +1,7 @@
 import express from 'express';
 import { pool } from '../db.js';
+import { getRequestUser, isSuperAdminUser } from '../auth-security.js';
+import ftpService from '../ftp-service.js';
 
 const router = express.Router();
 
@@ -218,9 +220,14 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   await ensurePlantsTable();
   try {
+    const caller = await getRequestUser(req);
+    if (caller && !isSuperAdminUser(caller)) {
+      return res.status(403).json({ error: 'Only Super Admin can create new plants.' });
+    }
+
     const p = req.body;
     const id = p.id || `PL${String(Math.floor(10 + Math.random() * 90))}`;
-    const code = p.code || `PLANT_${String(Math.floor(100 + Math.random() * 900))}`;
+    const code = (p.code || `PLANT_${String(Math.floor(100 + Math.random() * 900))}`).trim();
     const name = p.name || 'New Ready Mix Concrete Plant';
     const location = p.location || 'Industrial Area';
     const city = p.city || 'Hyderabad';
@@ -258,7 +265,16 @@ router.post('/', async (req, res) => {
     }
 
     memoryPlants.push(newPlantObj);
-    res.status(201).json(newPlantObj);
+
+    // Automatically create FTP folders: /<Plant Name>/Entry Gate and /<Plant Name>/Exit Gate
+    let ftpFolders = null;
+    try {
+      ftpFolders = await ftpService.ensurePlantFolders(newPlantObj);
+    } catch (ftpErr) {
+      console.warn(`FTP folder creation warning for plant ${name}:`, ftpErr.message);
+    }
+
+    res.status(201).json({ ...newPlantObj, ftpFolders });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -268,6 +284,10 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   await ensurePlantsTable();
   try {
+    const caller = await getRequestUser(req);
+    if (caller && !isSuperAdminUser(caller)) {
+      return res.status(403).json({ error: 'Only Super Admin can update plants.' });
+    }
     const id = req.params.id;
     const p = req.body;
 
@@ -287,6 +307,12 @@ router.put('/:id', async (req, res) => {
       );
     } catch (dbErr) {
       console.warn('DB update plant fallback:', dbErr.message);
+    }
+
+    if (p.name) {
+      ftpService.ensurePlantFolders({ id, name: p.name, code: p.code || id }).catch((ftpErr) => {
+        console.warn(`FTP folder sync warning on plant update ${id}:`, ftpErr.message);
+      });
     }
 
     const idx = memoryPlants.findIndex(item => item.id === id);
@@ -310,6 +336,10 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   await ensurePlantsTable();
   try {
+    const caller = await getRequestUser(req);
+    if (caller && !isSuperAdminUser(caller)) {
+      return res.status(403).json({ error: 'Only Super Admin can delete plants.' });
+    }
     const id = req.params.id;
     try {
       await pool.query('DELETE FROM plants WHERE id = ?', [id]);

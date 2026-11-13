@@ -339,8 +339,9 @@ export function attachHlsStream({
   if (timeoutMs > 0) {
     fallbackTimer = setTimeout(() => {
       if (!isResolved && !isDestroyed) {
-        console.info(`[CameraStream] Initial handshake wait elapsed for ${pair.primaryUrl}; continuing background reconnect.`);
-        scheduleReconnect(1000);
+        console.info(`[CameraStream] Initial handshake wait elapsed for ${pair.primaryUrl}; activating fallback.`);
+        onError?.({ details: 'STREAM_TIMEOUT' });
+        scheduleReconnect(2000);
       }
     }, timeoutMs);
   }

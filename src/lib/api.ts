@@ -92,8 +92,9 @@ class ApiClient {
   }
 
   // Camera devices
-  async getCameras() {
-    return this.request<any[]>('/cameras');
+  async getCameras(plantId?: string) {
+    const query = plantId && plantId !== 'all' ? `?plant_id=${encodeURIComponent(plantId)}` : '';
+    return this.request<any[]>(`/cameras${query}`);
   }
 
   async getCamera(deviceId: string) {
@@ -1073,6 +1074,29 @@ class ApiClient {
   }
 
   // ==================== FTP / SFTP STORAGE ====================
+  async getPlantFtpFolders(plantId: string) {
+    return this.request<{
+      success: boolean;
+      plantId: string;
+      plantName: string;
+      plantFolder: string;
+      folders: Array<{
+        value: string;
+        label: string;
+        folderName: string;
+        path: string;
+      }>;
+    }>(`/ftp/plant-folders/${encodeURIComponent(plantId)}`);
+  }
+
+  async syncPlantFtpFolders() {
+    return this.request<{
+      success: boolean;
+      count: number;
+      plants: Array<{ plantId: string; plantFolder: string; basePath: string; entryPath: string; exitPath: string }>;
+    }>('/ftp/sync-plant-folders', { method: 'POST' });
+  }
+
   async uploadToFtp(data: {
     image: string;
     filename?: string;
@@ -1080,6 +1104,8 @@ class ApiClient {
     angle?: string;
     weight?: number;
     sessionId?: string;
+    cameraId?: string;
+    plantId?: string;
     cameraName?: string;
     cameraIp?: string;
     gateType?: string;
@@ -1124,30 +1150,53 @@ class ApiClient {
     return this.request<any[]>(`/ftp/recent?limit=${limit}`);
   }
 
-  async getLatestFtpPlate() {
+  async getLatestFtpPlate(params?: { plantId?: string; cameraId?: string; gateType?: string }) {
+    const query = new URLSearchParams();
+    if (params?.plantId) query.set('plantId', params.plantId);
+    if (params?.cameraId) query.set('cameraId', params.cameraId);
+    if (params?.gateType) query.set('gateType', params.gateType);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+
     return this.request<{
       success: boolean;
       plate?: string;
       filename?: string;
+      remotePath?: string;
+      folderPath?: string;
+      ftpUrl?: string;
+      plantId?: string;
+      plantName?: string;
+      cameraId?: string;
+      cameraName?: string;
       imageUrl?: string;
       sizeBytes?: number;
       channel?: string;
       timestamp?: string;
       lastModified?: string;
       message?: string;
-    }>('/ftp/latest-plate');
+    }>(`/ftp/latest-plate${qs}`);
   }
 
-  async getFtpPlates(limit = 20) {
+  async getFtpPlates(limit = 20, params?: { plantId?: string; cameraId?: string; gateType?: string }) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (params?.plantId) query.set('plantId', params.plantId);
+    if (params?.cameraId) query.set('cameraId', params.cameraId);
+    if (params?.gateType) query.set('gateType', params.gateType);
+
     return this.request<Array<{
       plate: string;
       filename: string;
+      remotePath?: string;
+      folderPath?: string;
+      ftpUrl?: string;
+      plantId?: string;
+      cameraId?: string;
       sizeBytes: number;
       channel: string;
       timestamp: string;
       lastModified: string;
       imageUrl: string;
-    }>>(`/ftp/plates?limit=${limit}`);
+    }>>(`/ftp/plates?${query.toString()}`);
   }
 
   async getFtpConfig() {

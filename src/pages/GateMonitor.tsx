@@ -17,7 +17,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 const GateMonitor = () => {
-  const { cameras, initialized } = useGateCameras();
+  const { cameras, initialized, effectivePlantId } = useGateCameras();
   const [dbInitialized, setDbInitialized] = useState(false);
   const [checkingDb, setCheckingDb] = useState(true);
   const [detectedPlate, setDetectedPlate] = useState<string>("");
@@ -95,48 +95,75 @@ const GateMonitor = () => {
     return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
-  // Poll camera FTP directory for latest incoming vehicle nameplate files
+  // Reset scoped evidence display when switching plants or cameras
+  useEffect(() => {
+    lastDetectedFilenameRef.current = null;
+    setFtpUploadInfo(null);
+    setCapturedFrameUrl(null);
+    setDetectedPlate("");
+  }, [effectivePlantId, selectedCameraId]);
+
+  // Poll camera FTP directory for latest incoming vehicle nameplate or uploaded evidence image scoped to active plant/camera
   const checkLatestFtpPlate = useCallback(async (isManual = false) => {
+    if (!initialized) return;
+
     try {
       if (isManual) setIsCheckingFtp(true);
-      const res = await api.getLatestFtpPlate();
+      const scopedCameraId = selectedCameraId !== 'all' ? selectedCameraId : undefined;
+      const res = await api.getLatestFtpPlate({
+        plantId: effectivePlantId,
+        cameraId: scopedCameraId,
+      });
 
-      if (res && res.success && res.plate && res.filename) {
+      if (res && res.success && res.filename) {
         const fullImg = resolveImageUrl(res.imageUrl);
         const timeStr = res.lastModified ? new Date(res.lastModified).toLocaleTimeString() : new Date().toLocaleTimeString();
+        const storedPath = res.remotePath || res.filename;
 
-        if (lastDetectedFilenameRef.current !== res.filename || isManual || !detectedPlate) {
-          const isNew = lastDetectedFilenameRef.current !== res.filename;
-          lastDetectedFilenameRef.current = res.filename;
-          setDetectedPlate(res.plate);
-          setDetectedConfidence(0.98);
+        if (lastDetectedFilenameRef.current !== storedPath || isManual || (res.plate && !detectedPlate)) {
+          const isNew = lastDetectedFilenameRef.current !== storedPath;
+          lastDetectedFilenameRef.current = storedPath;
+          if (res.plate) {
+            setDetectedPlate(res.plate);
+            setDetectedConfidence(0.98);
+          }
           if (fullImg) {
             setCapturedFrameUrl(fullImg);
           }
           setCapturedTimestamp(timeStr);
           setFtpUploadInfo({
-            remotePath: res.filename,
+            remotePath: storedPath,
             filename: res.filename,
             timestamp: timeStr,
             httpProxyUrl: fullImg || res.imageUrl,
-            ftpUrl: `ftp://213.210.37.249:2121/${res.filename}`,
+            ftpUrl: res.ftpUrl,
             sizeBytes: res.sizeBytes,
           });
 
           if (isNew) {
-            toast.success(`Vehicle Plate ${res.plate} Detected from FTP!`, {
-              description: `File: ${res.filename}`,
-              duration: 4500,
-            });
+            toast.success(
+              res.plate
+                ? `Vehicle Plate ${res.plate} Detected from FTP!`
+                : `FTP Image Loaded: ${res.filename}`,
+              {
+                description: `Folder: ${res.folderPath || storedPath}`,
+                duration: 4500,
+              }
+            );
           } else if (isManual) {
-            toast.success(`Vehicle Number ${res.plate} Retrieved!`, {
-              description: `Evidence file: ${res.filename}`,
-              duration: 3500,
-            });
+            toast.success(
+              res.plate
+                ? `Vehicle Number ${res.plate} Retrieved!`
+                : `Latest FTP Evidence Retrieved!`,
+              {
+                description: `Stored in ${storedPath}`,
+                duration: 3500,
+              }
+            );
           }
         }
       } else if (isManual) {
-        toast.info("No incoming vehicle plate files found on FTP yet.");
+        toast.info("No incoming vehicle images found in this plant's FTP folders yet.");
       }
     } catch (err: any) {
       if (isManual) {
@@ -145,7 +172,7 @@ const GateMonitor = () => {
     } finally {
       if (isManual) setIsCheckingFtp(false);
     }
-  }, [detectedPlate]);
+  }, [detectedPlate, initialized, effectivePlantId, selectedCameraId]);
 
   // Periodic background check of camera FTP directory (every 3 seconds)
   useEffect(() => {
@@ -169,14 +196,19 @@ const GateMonitor = () => {
         if (selectedCameraId !== 'all') {
           targetCameraId = selectedCameraId;
         } else {
-          // In dual view, choose the camera that currently has a plate in view, or the main entry camera
+          // In dual view, choose the camera that currently has a plate in view, or the first assigned camera
           const camWithPlate = displayedCameras.find(c => cameraInViewPlatesRef.current[c.id]?.plate);
-          targetCameraId = camWithPlate ? camWithPlate.id : (displayedCameras[0]?.id || 'cam_gate_1');
+          targetCameraId = camWithPlate ? camWithPlate.id : displayedCameras[0]?.id;
         }
       }
 
+      if (!targetCameraId) {
+        toast.error('No camera assigned to this plant to capture from.');
+        return;
+      }
+
       const targetCam = cameras.find(c => c.id === targetCameraId);
-      const cameraIp = targetCam?.ip_address || (targetCam as any)?.ipAddress || '192.168.0.100';
+      const cameraIp = targetCam?.ip_address || (targetCam as any)?.ipAddress || targetCameraId;
 
       const captureFunc = cameraCaptureMapRef.current[targetCameraId];
       let frameDataUrl = '';
@@ -228,9 +260,14 @@ const GateMonitor = () => {
         setDetectedConfidence(confidence);
       }
 
-      // Generate filename according to requested convention: Entry_Gate_IP_DDMMYY
+      // Generate filename according to camera's configured gate location, IP & timestamp
+      const rawLocation = targetCam?.rawLocation || 'entry';
+      const locationTag = rawLocation.toLowerCase().includes('exit') ? 'Exit_Gate' : 'Entry_Gate';
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
       const ddmmyy = getFormattedDDMMYY();
-      const ftpFilename = `Entry_Gate_${cameraIp}_${ddmmyy}.jpg`;
+      const hhmmss = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const ftpFilename = `${locationTag}_${cameraIp}_${ddmmyy}_${hhmmss}.jpg`;
 
       // Automatically save to FTP upon capturing
       if (frameDataUrl) {
@@ -241,9 +278,11 @@ const GateMonitor = () => {
             filename: ftpFilename,
             vehicleRegNo: plateNumber || 'PENDING',
             angle: 'front',
+            cameraId: targetCameraId,
+            plantId: targetCam?.plantId,
             cameraName: cameraName,
             cameraIp: cameraIp,
-            gateType: 'entry'
+            gateType: targetCam?.rawLocation || 'entry'
           });
 
           if (uploadRes && uploadRes.success) {
@@ -255,6 +294,7 @@ const GateMonitor = () => {
               ftpUrl: uploadRes.ftpUrl,
               sizeBytes: uploadRes.sizeBytes,
             };
+            lastDetectedFilenameRef.current = uploadRes.remotePath || uploadRes.filename;
             setFtpUploadInfo(record);
 
             toast.success(
@@ -294,12 +334,18 @@ const GateMonitor = () => {
       return;
     }
 
-    const targetCameraId = selectedCameraId !== 'all' ? selectedCameraId : (displayedCameras[0]?.id || 'cam_gate_1');
+    const targetCameraId = selectedCameraId !== 'all' ? selectedCameraId : displayedCameras[0]?.id;
+    if (!targetCameraId) {
+      toast.error("No camera assigned to this plant.");
+      return;
+    }
     const targetCam = cameras.find(c => c.id === targetCameraId);
-    const cameraIp = targetCam?.ip_address || (targetCam as any)?.ipAddress || '192.168.0.100';
+    const cameraIp = targetCam?.ip_address || (targetCam as any)?.ipAddress || targetCameraId;
+    const rawLocation = targetCam?.rawLocation || 'entry';
+    const locationTag = rawLocation.toLowerCase().includes('exit') ? 'Exit_Gate' : 'Entry_Gate';
 
     const ddmmyy = getFormattedDDMMYY();
-    const ftpFilename = `Entry_Gate_${cameraIp}_${ddmmyy}.jpg`;
+    const ftpFilename = `${locationTag}_${cameraIp}_${ddmmyy}.jpg`;
 
     let imageToUpload = capturedFrameUrl;
     if (!imageToUpload) {
@@ -330,10 +376,12 @@ const GateMonitor = () => {
         image: imageToUpload,
         filename: ftpFilename,
         vehicleRegNo: plate,
-        angle: selectedCameraId === 'cam_gate_exit' ? 'exit' : 'front',
-        cameraName: capturedCameraName || targetCam?.name || 'Main Gate ANPR Camera',
+        angle: rawLocation.toLowerCase().includes('exit') ? 'exit' : 'front',
+        cameraId: targetCameraId,
+        plantId: targetCam?.plantId,
+        cameraName: capturedCameraName || targetCam?.name || targetCameraId,
         cameraIp: cameraIp,
-        gateType: 'entry'
+        gateType: rawLocation
       });
 
       if (uploadRes && uploadRes.success) {
@@ -345,6 +393,7 @@ const GateMonitor = () => {
           ftpUrl: uploadRes.ftpUrl,
           sizeBytes: uploadRes.sizeBytes,
         };
+        lastDetectedFilenameRef.current = uploadRes.remotePath || uploadRes.filename;
         setFtpUploadInfo(record);
 
         toast.success(`Vehicle ${plate} Saved to FTP!`, {
@@ -370,6 +419,13 @@ const GateMonitor = () => {
     const id = (cam.id || '').toLowerCase();
     return id === 'cam_gate_1' || id === 'Exit 2' || name.includes('anpr') || id.includes('anpr');
   };
+
+  // Reset selected camera if plant or camera list changes and selected camera is no longer in list
+  useEffect(() => {
+    if (selectedCameraId !== 'all' && !cameras.some(c => c.id === selectedCameraId)) {
+      setSelectedCameraId('all');
+    }
+  }, [cameras, selectedCameraId]);
 
   // Filter cameras based on user's selection
   const displayedCameras = selectedCameraId === "all"
@@ -465,16 +521,22 @@ const GateMonitor = () => {
 
           {/* Quick Select Buttons for Gatekeeper */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              type="button"
-              variant={selectedCameraId === "all" ? "default" : "outline"}
-              size="sm"
-              className="text-xs gap-1.5 cursor-pointer h-8"
-              onClick={() => setSelectedCameraId("all")}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span>All Feeds (Dual View)</span>
-            </Button>
+            {cameras.length > 1 && (
+              <Button
+                type="button"
+                variant={selectedCameraId === "all" ? "default" : "outline"}
+                size="sm"
+                className="text-xs gap-1.5 cursor-pointer h-8"
+                onClick={() => setSelectedCameraId("all")}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>All Feeds ({cameras.length})</span>
+              </Button>
+            )}
+
+            {cameras.length === 0 && initialized && (
+              <span className="text-xs text-muted-foreground">No cameras assigned to this plant</span>
+            )}
 
             {cameras.map((cam, idx) => {
               const isAnpr = isCameraANPR(cam);
@@ -523,19 +585,29 @@ const GateMonitor = () => {
       {/* Main Grid Layout: Live Camera Feeds */}
       <div className="grid grid-cols-1 gap-5">
         {initialized ? (
-          <div className={selectedCameraId === "all" && displayedCameras.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-5" : "grid grid-cols-1 gap-5"}>
-            {displayedCameras.map((camera) => (
-              <LiveFeedViewer 
-                key={camera.id} 
-                camera={camera}
-                enableANPR={isCameraANPR(camera)}
-                gatekeeperMode={true}
-                onPlateInView={handlePlateInView}
-                onRegisterCapture={registerCameraCapture}
-                onManualCaptureClick={handleManualCapture}
-              />
-            ))}
-          </div>
+          displayedCameras.length > 0 ? (
+            <div className={selectedCameraId === "all" && displayedCameras.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-5" : "grid grid-cols-1 gap-5"}>
+              {displayedCameras.map((camera) => (
+                <LiveFeedViewer 
+                  key={camera.id} 
+                  camera={camera}
+                  enableANPR={isCameraANPR(camera)}
+                  gatekeeperMode={true}
+                  onPlateInView={handlePlateInView}
+                  onRegisterCapture={registerCameraCapture}
+                  onManualCaptureClick={handleManualCapture}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="border border-dashed rounded-lg p-10 text-center bg-card/50">
+              <Camera className="h-10 w-10 mx-auto mb-3 text-muted-foreground/60" />
+              <p className="text-sm font-medium text-foreground">No Cameras Assigned to This Plant</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Super Admin can register or assign cameras to this plant in Device Config.
+              </p>
+            </div>
+          )
         ) : (
           <div className={selectedCameraId === "all" ? "grid grid-cols-1 md:grid-cols-2 gap-5" : "grid grid-cols-1 gap-5"}>
             {displayedCameras.map((camera) => (

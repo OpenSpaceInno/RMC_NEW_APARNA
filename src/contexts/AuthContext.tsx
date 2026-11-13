@@ -9,6 +9,8 @@ interface AuthContextType {
   role: Role | null;
   token: string | null;
   isAuthenticated: boolean;
+  isSuperAdmin: boolean;
+  isPlantUser: boolean;
   isLoading: boolean;
   demoUsers: DemoUser[];
   roles: Role[];
@@ -30,11 +32,21 @@ const AUTH_USER_KEY = 'rmc_auth_user';
 const AUTH_TOKEN_KEY = 'rmc_auth_token';
 const AUTH_PLANT_KEY = 'rmc_active_plant';
 
-// Fallback initial admin role
+export const ALL_PLANTS_OPTION: Plant = {
+  id: 'all',
+  code: 'ALL',
+  name: 'All Plants',
+  location: 'All Plant Terminals',
+  city: 'Enterprise',
+  capacityPerHour: 0,
+  status: 'active',
+};
+
+// Fallback initial Super Admin role
 const DEFAULT_ADMIN_ROLE: Role = {
-  id: 'admin',
-  name: 'Admin / Plant Manager',
-  description: 'Executive control over Plant Operations, User Management, Gate Monitor, Weighbridge, and Device Configuration',
+  id: 'super_admin',
+  name: 'Super Admin',
+  description: 'Global enterprise control over all plants, Gate Monitor, Weighbridge, Plant Management, User Management, and Device Configuration',
   color: '#8b5cf6',
   modules: ['/gate-monitor', '/weighbridge', '/plants', '/users', '/device-config', '*'],
   permissions: ['*'],
@@ -42,18 +54,18 @@ const DEFAULT_ADMIN_ROLE: Role = {
 };
 
 const DEFAULT_ADMIN_USER: User = {
-  id: 'usr_admin',
-  username: 'admin',
-  name: 'Rajesh Sharma (Admin / Plant Manager)',
-  email: 'plantmanager@aparna-rmc.com',
-  roleId: 'admin',
-  roleName: 'Admin / Plant Manager',
+  id: 'USR-SUPER-001',
+  username: 'superadmin',
+  name: 'Super Admin',
+  email: 'superadmin@aparnarmc.com',
+  roleId: 'super_admin',
+  roleName: 'Super Admin',
   roleColor: '#8b5cf6',
-  department: 'Plant Management',
+  department: 'Corporate Administration',
   shift: 'All Shifts',
   status: 'active',
   plantId: 'all',
-  plantName: 'All Plants (Global Admin)',
+  plantName: 'All Plants (Super Admin)',
   role: DEFAULT_ADMIN_ROLE,
 };
 
@@ -103,13 +115,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [demoUsers, setDemoUsers] = useState<DemoUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [plants, setPlants] = useState<Plant[]>(DEFAULT_PLANTS);
+  const [plants, setPlants] = useState<Plant[]>([]);
   const [activePlant, setActivePlant] = useState<Plant>(() => {
     try {
-      const stored = localStorage.getItem(AUTH_PLANT_KEY);
-      if (stored) return JSON.parse(stored);
+      const storedUser = localStorage.getItem(AUTH_USER_KEY);
+      const parsedUser = storedUser ? JSON.parse(storedUser) : null;
+      const storedPlant = localStorage.getItem(AUTH_PLANT_KEY);
+      if (storedPlant) {
+        const parsedPlant = JSON.parse(storedPlant);
+        if (parsedUser && parsedUser.plantId && parsedUser.plantId !== 'all' && parsedPlant.id === 'all') {
+          return DEFAULT_PLANTS[0];
+        }
+        return parsedPlant;
+      }
     } catch (e) {}
-    return DEFAULT_PLANTS[0];
+    return ALL_PLANTS_OPTION;
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -133,7 +153,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const plantsData = await api.getPlants();
       if (Array.isArray(plantsData) && plantsData.length > 0) {
         setPlants(plantsData);
-        // If current active plant is in list, sync its details
+        if (activePlant.id === 'all') {
+          return;
+        }
         const found = plantsData.find(p => p.id === activePlant.id);
         if (found) {
           setActivePlant(found);
@@ -146,6 +168,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [activePlant.id]);
 
   const switchPlant = useCallback((plantId: string) => {
+    if (plantId === 'all') {
+      setActivePlant(ALL_PLANTS_OPTION);
+      localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(ALL_PLANTS_OPTION));
+      toast.success(`Plant Filter Switched`, {
+        description: `Now viewing All Plants`,
+      });
+      return;
+    }
     const target = plants.find(p => p.id === plantId);
     if (target) {
       setActivePlant(target);
@@ -168,27 +198,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ]);
 
         if (mounted) {
-          const allowedRoles = ['admin', 'weighbridge_operator'];
+          const allowedRoles = ['super_admin', 'plant_user', 'admin', 'weighbridge_operator'];
           if (demoData.status === 'fulfilled' && Array.isArray(demoData.value)) {
             const filteredDemos = demoData.value.filter(u => allowedRoles.includes(u.roleId));
-            setDemoUsers(filteredDemos.map(u => ({
-              ...u,
-              roleName: u.roleId === 'admin' ? 'Admin / Plant Manager' : 'Weighbridge In-charge / Operator',
-              name: u.roleId === 'admin' ? 'Rajesh Sharma (Admin / Plant Manager)' : 'Ramesh Kulkarni (Weighbridge In-charge)',
-              plantId: u.roleId === 'admin' ? 'all' : 'PL01',
-              plantName: u.roleId === 'admin' ? 'All Plants (Global Admin)' : 'Plant 01 • Shamshabad Central',
-            })));
+            setDemoUsers(filteredDemos);
           }
           if (rolesData.status === 'fulfilled' && Array.isArray(rolesData.value)) {
-            const filteredRoles = rolesData.value.filter(r => allowedRoles.includes(r.id));
-            setRoles(filteredRoles);
+            setRoles(rolesData.value);
           }
           if (plantsData.status === 'fulfilled' && Array.isArray(plantsData.value) && plantsData.value.length > 0) {
             setPlants(plantsData.value);
-            // Default active plant if not set or found
-            const current = plantsData.value.find(p => p.id === activePlant.id) || plantsData.value[0];
-            setActivePlant(current);
-            localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(current));
+            if (user?.plantId && user.plantId !== 'all') {
+              const assigned = plantsData.value.find(p => p.id === user.plantId) || plantsData.value[0];
+              setActivePlant(assigned);
+              localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(assigned));
+            } else if (activePlant.id === 'all') {
+              setActivePlant(ALL_PLANTS_OPTION);
+              localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(ALL_PLANTS_OPTION));
+            } else {
+              const current = plantsData.value.find(p => p.id === activePlant.id) || ALL_PLANTS_OPTION;
+              setActivePlant(current);
+              localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(current));
+            }
           }
         }
       } catch (err) {
@@ -221,30 +252,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.login(credentials);
       if (res?.success && res.user) {
-        if (res.user.roleId === 'admin') {
-          res.user.roleName = res.user.roleName || 'Admin / Plant Manager';
-          if (res.user.role) res.user.role.name = 'Admin / Plant Manager';
-        } else if (res.user.roleId === 'weighbridge_operator') {
-          res.user.roleName = res.user.roleName || 'Weighbridge In-charge / Operator';
-          if (res.user.role) res.user.role.name = 'Weighbridge In-charge / Operator';
-        }
+        const isGlobal =
+          res.user.roleId === 'super_admin' ||
+          (res.user.roleId === 'admin' && (!res.user.plantId || res.user.plantId === 'all'));
 
-        // Set active plant based on the verified user's assigned plant terminal
-        const designatedPlantId = res.user.plantId && res.user.plantId !== 'all' 
-          ? res.user.plantId 
-          : (credentials.plantId || 'PL01');
-
-        const match = plants.find(p => p.id === designatedPlantId) || plants.find(p => p.id === credentials.plantId);
-        if (match) {
-          setActivePlant(match);
-          localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
-          res.user.plantId = match.id;
-          res.user.plantName = match.name;
+        if (isGlobal) {
+          res.user.plantId = 'all';
+          res.user.plantName = 'All Plants (Super Admin)';
+          const targetPlant =
+            credentials.plantId && credentials.plantId !== 'all'
+              ? (plants.find(p => p.id === credentials.plantId) || ALL_PLANTS_OPTION)
+              : ALL_PLANTS_OPTION;
+          setActivePlant(targetPlant);
+          localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(targetPlant));
+        } else {
+          // Bind Plant User / Weighbridge Operator strictly to their assigned plant
+          const designatedPlantId = res.user.plantId || credentials.plantId || 'PL01';
+          const match = plants.find(p => p.id === designatedPlantId) || plants[0];
+          if (match) {
+            setActivePlant(match);
+            localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
+            res.user.plantId = match.id;
+            res.user.plantName = match.name;
+          }
         }
 
         saveAuthSession(res.user, res.token);
         toast.success(`Welcome, ${res.user.name}!`, {
-          description: `Operating Terminal: ${res.user.plantName || match?.name || designatedPlantId}`,
+          description: isGlobal
+            ? 'Global Terminal: All Plants Access Enabled'
+            : `Operating Terminal: ${res.user.plantName || activePlant.name}`,
         });
         return true;
       } else {
@@ -274,20 +311,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const isSuperAdmin = Boolean(
+    user &&
+      (user.roleId === 'super_admin' ||
+        (user.roleId === 'admin' && (!user.plantId || user.plantId === 'all')))
+  );
+  const isPlantUser = Boolean(
+    user &&
+      (user.roleId === 'plant_user' ||
+        (user.roleId === 'admin' && user.plantId && user.plantId !== 'all'))
+  );
+
+  // Keep activePlant strictly locked to user's assigned plant for non-Super-Admin users
+  useEffect(() => {
+    if (!user || isSuperAdmin) return;
+    if (user.plantId && user.plantId !== 'all' && activePlant.id !== user.plantId) {
+      const match = plants.find(p => p.id === user.plantId);
+      if (match) {
+        setActivePlant(match);
+        localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(match));
+      }
+    }
+  }, [user, isSuperAdmin, plants, activePlant.id]);
+
   // Check if current user has access to a given route URL
   const hasAccess = useCallback((path: string): boolean => {
     if (!user) return false;
     const userRole = user.role;
     const roleId = user.roleId || userRole?.id;
 
-    // 1. Admin / Plant Manager has full access to all terminals: Gate Monitor, Weighbridge, Plants, Users, Device Config
-    if (roleId === 'admin' || userRole?.modules?.includes('*')) {
+    // 1. Super Admin (or legacy global admin with plantId === 'all') has full access
+    if (isSuperAdmin) {
       return true;
     }
 
-    // 2. Weighbridge Role: strictly allowed ONLY Gate Monitor and Weighbridge (NO Device Config, NO Plants, NO Users)
+    // 2. Plant User: strictly allowed Gate Monitor, Weighbridge, and User Management of their own plant ONLY
+    if (roleId === 'plant_user' || isPlantUser) {
+      return (
+        path === '/' ||
+        path === '/gate-monitor' ||
+        path === '/weighbridge' ||
+        path === '/users'
+      );
+    }
+
+    // 3. Weighbridge Role: strictly allowed ONLY Gate Monitor and Weighbridge (NO Device Config, NO Plants, NO Users)
     if (roleId === 'weighbridge_operator' || roleId === 'weighbridge') {
       return path === '/gate-monitor' || path === '/weighbridge' || path === '/';
+    }
+
+    if (userRole?.modules?.includes('*')) {
+      return true;
     }
 
     if (!userRole?.modules || !Array.isArray(userRole.modules)) {
@@ -308,23 +382,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (m !== '/' && path.startsWith(m)) return true;
       return false;
     });
-  }, [user]);
+  }, [user, isSuperAdmin, isPlantUser]);
 
   // Check specific permission
   const hasPermission = useCallback((permission: string): boolean => {
     if (!user) return false;
     const userRole = user.role;
-    if (user.roleId === 'admin' || userRole?.permissions?.includes('*')) {
+    if (isSuperAdmin || userRole?.permissions?.includes('*')) {
       return true;
     }
     return userRole?.permissions?.includes(permission) || false;
-  }, [user]);
+  }, [user, isSuperAdmin]);
 
   const value: AuthContextType = {
     user,
     role: user?.role || null,
     token,
     isAuthenticated: !!user,
+    isSuperAdmin,
+    isPlantUser,
     isLoading,
     demoUsers,
     roles,

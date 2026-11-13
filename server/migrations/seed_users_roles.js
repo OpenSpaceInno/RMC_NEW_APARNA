@@ -1,19 +1,44 @@
 import { pool } from '../db.js';
+import { hashPassword } from '../auth-security.js';
 
 export const initialRoles = [
   {
-    id: 'admin',
-    name: 'Plant Head / Admin',
-    description: 'Executive leadership with comprehensive plant-wide visibility, multi-camera CCTV wall, all operational modules, and configuration overrides.',
+    id: 'super_admin',
+    name: 'Super Admin',
+    description: 'Global enterprise administrator with full access to all modules across all plants, plant creation, user management, and device configuration.',
     color: 'purple',
     modules: [
-      '/', '/gate-monitor', '/weighbridge', '/loading', '/dispatch',
-      '/trips', '/trip-tracking', '/trip-analytics', '/exit-verification',
-      '/incidents', '/audit-logs', '/vehicles', '/drivers', '/fuel',
-      '/maintenance', '/billing', '/inventory', '/reports', '/customer-portal',
-      '/device-config', '/database-setup', '/users', '/roles'
+      '*', '/', '/gate-monitor', '/weighbridge', '/plants', '/users', '/device-config',
+      '/loading', '/dispatch', '/trips', '/trip-tracking', '/trip-analytics',
+      '/exit-verification', '/incidents', '/audit-logs', '/vehicles', '/drivers',
+      '/fuel', '/maintenance', '/billing', '/inventory', '/reports', '/customer-portal',
+      '/database-setup', '/roles'
     ],
-    permissions: ['all:manage', 'users:manage', 'roles:manage', 'config:manage', 'reports:export', 'override:approve'],
+    permissions: ['*', 'all:manage', 'plants:manage', 'users:manage', 'roles:manage', 'config:manage', 'reports:export', 'override:approve'],
+    is_system: true
+  },
+  {
+    id: 'plant_user',
+    name: 'Plant User',
+    description: 'Plant-scoped manager with access to Gate Monitor, Weighbridge, and Plant User Management (Weighbridge role creation only) for their assigned plant.',
+    color: 'blue',
+    modules: ['/', '/gate-monitor', '/weighbridge', '/users'],
+    permissions: ['gate:read', 'weighbridge:capture', 'weighbridge:tare', 'weighbridge:gross', 'users:manage_plant'],
+    is_system: true
+  },
+  {
+    id: 'admin',
+    name: 'Plant Head / Admin',
+    description: 'Legacy global administrator role with multi-plant visibility and configuration access.',
+    color: 'purple',
+    modules: [
+      '*', '/', '/gate-monitor', '/weighbridge', '/plants', '/users', '/device-config',
+      '/loading', '/dispatch', '/trips', '/trip-tracking', '/trip-analytics',
+      '/exit-verification', '/incidents', '/audit-logs', '/vehicles', '/drivers',
+      '/fuel', '/maintenance', '/billing', '/inventory', '/reports', '/customer-portal',
+      '/database-setup', '/roles'
+    ],
+    permissions: ['*', 'all:manage', 'users:manage', 'roles:manage', 'config:manage', 'reports:export', 'override:approve'],
     is_system: true
   },
   {
@@ -28,10 +53,10 @@ export const initialRoles = [
   {
     id: 'weighbridge_operator',
     name: 'Weighbridge In-charge / Operator',
-    description: 'Performs precision tare and gross weighment captures, calibration checks, scale zeroing, and tolerance breach flags.',
-    color: 'blue',
-    modules: ['/', '/weighbridge', '/gate-monitor', '/exit-verification', '/reports'],
-    permissions: ['weighbridge:capture', 'weighbridge:tare', 'weighbridge:gross', 'exit:verify', 'reports:read'],
+    description: 'Performs precision tare and gross weighment captures, calibration checks, scale zeroing, and gate monitoring for their assigned plant.',
+    color: 'emerald',
+    modules: ['/', '/weighbridge', '/gate-monitor'],
+    permissions: ['weighbridge:capture', 'weighbridge:tare', 'weighbridge:gross', 'gate:read'],
     is_system: true
   },
   {
@@ -83,13 +108,79 @@ export const initialRoles = [
 
 export const initialUsers = [
   {
+    id: 'USR-SUPER-001',
+    username: 'superadmin',
+    name: 'Super Admin',
+    email: 'superadmin@aparnarmc.com',
+    password_hash: hashPassword('superadmin123'),
+    role_id: 'super_admin',
+    role_name: 'Super Admin',
+    plant_id: 'all',
+    plant_name: 'All Plants (Super Admin)',
+    phone: '+91 98200 00001',
+    department: 'Corporate Administration',
+    shift: 'All Shifts',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'
+  },
+  {
+    id: 'USR-PLANT-001',
+    username: 'plant_pl01',
+    name: 'Shamshabad Plant User',
+    email: 'plant.pl01@aparnarmc.com',
+    password_hash: hashPassword('plant123'),
+    role_id: 'plant_user',
+    role_name: 'Plant User',
+    plant_id: 'PL01',
+    plant_name: 'Plant 01 • Shamshabad Central',
+    phone: '+91 98200 10002',
+    department: 'Plant Operations Management',
+    shift: 'General Shift (08:00 - 18:00)',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
+  },
+  {
+    id: 'USR-PLANT-002',
+    username: 'op_miyapur',
+    name: 'Miyapur Plant User',
+    email: 'miyapur@aparnarmc.com',
+    password_hash: hashPassword('plant123'),
+    role_id: 'plant_user',
+    role_name: 'Plant User',
+    plant_id: 'PL02',
+    plant_name: 'Plant 02 • Miyapur Metro',
+    phone: '+91 98200 10003',
+    department: 'Plant Operations Management',
+    shift: 'General Shift (08:00 - 18:00)',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150'
+  },
+  {
+    id: 'USR-WEIGH-001',
+    username: 'weigh_op',
+    name: 'Ramesh Kulkarni (Weighbridge)',
+    email: 'weigh.op@aparnarmc.com',
+    password_hash: hashPassword('weigh123'),
+    role_id: 'weighbridge_operator',
+    role_name: 'Weighbridge In-charge / Operator',
+    plant_id: 'PL01',
+    plant_name: 'Plant 01 • Shamshabad Central',
+    phone: '+91 98200 30001',
+    department: 'Weighbridge Operations',
+    shift: 'Morning Shift (06:00 - 14:00)',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150'
+  },
+  {
     id: 'USR-001',
     username: 'admin',
     name: 'Rajesh Sharma',
     email: 'admin@aparnarmc.com',
     password_hash: 'admin123', // Demo login password
-    role_id: 'admin',
-    role_name: 'Plant Manager / Admin',
+    role_id: 'super_admin',
+    role_name: 'Super Admin',
+    plant_id: 'all',
+    plant_name: 'All Plants (Super Admin)',
     phone: '+91 98200 10001',
     department: 'Plant Operations Management',
     shift: 'General Shift (08:00 - 18:00)',
@@ -234,11 +325,14 @@ export async function seedUsersAndRoles() {
 
   // 2. Seed Users
   for (const user of initialUsers) {
-    const [existing] = await pool.query('SELECT id FROM users WHERE id = ?', [user.id]);
+    const [existing] = await pool.query(
+      'SELECT id FROM users WHERE id = ? OR username = ?',
+      [user.id, user.username]
+    );
     if (existing.length === 0) {
       await pool.query(
-        `INSERT INTO users (id, username, name, email, password_hash, role_id, role_name, phone, department, shift, status, avatar)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, username, name, email, password_hash, role_id, role_name, plant_id, plant_name, phone, department, shift, status, avatar)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           user.id,
           user.username,
@@ -247,6 +341,8 @@ export async function seedUsersAndRoles() {
           user.password_hash,
           user.role_id,
           user.role_name,
+          user.plant_id || (user.role_id === 'super_admin' || user.role_id === 'admin' ? 'all' : 'PL01'),
+          user.plant_name || (user.role_id === 'super_admin' || user.role_id === 'admin' ? 'All Plants (Super Admin)' : 'Plant 01 • Shamshabad Central'),
           user.phone,
           user.department,
           user.shift,
@@ -256,6 +352,11 @@ export async function seedUsersAndRoles() {
       );
     }
   }
+
+  // Ensure USR-001 / superadmin maintain global 'all' plant scope if previously defaulted to PL01
+  await pool.query(
+    `UPDATE users SET plant_id = 'all', plant_name = 'All Plants (Super Admin)' WHERE role_id = 'super_admin'`
+  ).catch(() => {});
 
   console.log('✅ Roles and users successfully seeded!');
 }

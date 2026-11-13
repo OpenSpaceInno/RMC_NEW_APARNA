@@ -63,13 +63,36 @@ router.get('/recent', async (req, res) => {
   }
 });
 
+// GET /api/ftp/plant-folders/:plantId
+// Lists (and ensures) FTP gate folders for a plant
+router.get('/plant-folders/:plantId', async (req, res) => {
+  try {
+    const result = await ftpService.getPlantFolders(req.params.plantId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/ftp/sync-plant-folders
+// Ensures FTP folders (Plant Name -> Entry Gate / Exit Gate) exist for all plants
+router.post('/sync-plant-folders', async (req, res) => {
+  try {
+    const synced = await ftpService.syncAllPlantFolders();
+    res.json({ success: true, count: synced.length, plants: synced });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET /api/ftp/latest-plate
-// Automatically reads the latest vehicle name plate from FTP camera directory
+// Automatically reads the latest vehicle name plate from scoped camera FTP folders
 router.get('/latest-plate', async (req, res) => {
   try {
-    const latest = await ftpService.getLatestFtpAnprPlate();
+    const { plantId, cameraId, gateType } = req.query;
+    const latest = await ftpService.getLatestFtpAnprPlate({ plantId, cameraId, gateType });
     if (!latest) {
-      return res.json({ success: false, message: 'No ANPR plate files found on FTP yet' });
+      return res.json({ success: false, message: 'No ANPR plate files found in scoped FTP folders yet' });
     }
     res.json({
       success: true,
@@ -81,11 +104,12 @@ router.get('/latest-plate', async (req, res) => {
 });
 
 // GET /api/ftp/plates
-// Lists recent vehicle name plates from FTP camera directory
+// Lists recent vehicle name plates from scoped camera FTP folders
 router.get('/plates', async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
-    const plates = await ftpService.getFtpAnprPlates(limit);
+    const { plantId, cameraId, gateType } = req.query;
+    const plates = await ftpService.getFtpAnprPlates({ limit, plantId, cameraId, gateType });
     res.json(plates);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -103,7 +127,7 @@ router.get('/file', async (req, res) => {
 
     const { buffer, contentType } = await ftpService.getFile(remotePath, requestedUser);
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.send(buffer);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -120,6 +144,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const angle = req.body.angle || 'overview';
     const weight = req.body.weight ? Number(req.body.weight) : null;
     const sessionId = req.body.sessionId || null;
+    const cameraId = req.body.cameraId || req.body.deviceId || null;
+    const plantId = req.body.plantId || null;
     const cameraName = req.body.cameraName || 'Weighbridge Camera';
     const cameraIp = req.body.cameraIp || req.body.ip || null;
     const gateType = req.body.gateType || null;
@@ -133,16 +159,18 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       if (dataUri.startsWith('data:image')) {
         const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, '');
         buffer = Buffer.from(base64Data, 'base64');
+      } else if (dataUri.includes('/api/ftp/file')) {
+        const parsed = dataUri.startsWith('http')
+          ? new URL(dataUri)
+          : new URL(`http://localhost:3001${dataUri.startsWith('/') ? '' : '/'}${dataUri}`);
+        const filePath = parsed.searchParams.get('path');
+        const reqUser = parsed.searchParams.get('user') || targetUser;
+        const fileObj = await ftpService.getFile(filePath, reqUser);
+        buffer = fileObj.buffer;
       } else if (dataUri.startsWith('http://') || dataUri.startsWith('https://')) {
         const fetchRes = await fetch(dataUri);
         const arrayBuf = await fetchRes.arrayBuffer();
         buffer = Buffer.from(arrayBuf);
-      } else if (dataUri.startsWith('/api/ftp/file')) {
-        const urlObj = new URL(`http://localhost:3001${dataUri}`);
-        const filePath = urlObj.searchParams.get('path');
-        const reqUser = urlObj.searchParams.get('user') || targetUser;
-        const fileObj = await ftpService.getFile(filePath, reqUser);
-        buffer = fileObj.buffer;
       } else {
         // Base64 without data URI scheme
         buffer = Buffer.from(dataUri, 'base64');
@@ -162,6 +190,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       angle,
       weight,
       sessionId,
+      cameraId,
+      plantId,
       cameraName,
       cameraIp,
       gateType,

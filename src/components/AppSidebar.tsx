@@ -42,7 +42,7 @@ export function AppSidebar() {
   const { open } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, role, logout, hasAccess, activePlant } = useAuth();
+  const { user, role, isSuperAdmin, logout, hasAccess, activePlant } = useAuth();
   const currentPath = location.pathname;
 
   // Filter items by role access
@@ -71,7 +71,11 @@ export function AppSidebar() {
                   <h2 className="text-sm font-semibold text-sidebar-foreground truncate">Aparna RMC</h2>
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"></span>
                 </div>
-                <p className="text-xs text-sidebar-foreground/70 truncate">{activePlant?.code || 'PLANT_001'} • {activePlant?.name.split('•')[1]?.trim() || 'Shamshabad'}</p>
+                <p className="text-xs text-sidebar-foreground/70 truncate">
+                  {isSuperAdmin && (!activePlant || activePlant.id === 'all')
+                    ? 'All Plants • Super Admin'
+                    : `${activePlant?.code || 'PLANT_001'} • ${activePlant?.name.split('•')[1]?.trim() || activePlant?.name || 'Assigned Plant'}`}
+                </p>
               </div>
             </div>
           ) : (

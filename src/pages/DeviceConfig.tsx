@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDeviceConfig } from '@/hooks/useDeviceConfig';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
+import { Plant } from '@/types/plant';
 import { DeviceList } from '@/components/device/DeviceList';
 import { EditDeviceDialog } from '@/components/device/EditDeviceDialog';
 import { NetworkConfigPanel } from '@/components/device/NetworkConfigPanel';
@@ -13,10 +16,32 @@ import { LiveStreamViewer } from '@/components/device/LiveStreamViewer';
 import { DeviceActions } from '@/components/device/DeviceActions';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { Camera, Network, Video, Image, ScanLine, Webhook, Settings, Radio, FolderSync } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Camera, Network, Video, Image, ScanLine, Webhook, Settings, Radio, FolderSync, Factory } from 'lucide-react';
 import { CameraDevice } from '@/types/deviceConfig';
 
 export default function DeviceConfig() {
+  const { plants: authPlants, activePlant, switchPlant, refreshPlants } = useAuth();
+  const [dbPlants, setDbPlants] = useState<Plant[]>([]);
+  const selectedPlantId = activePlant?.id || 'all';
+
+  const loadDbPlants = useCallback(async () => {
+    try {
+      const list = await api.getPlants();
+      if (Array.isArray(list)) {
+        setDbPlants(list);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch plants from DB:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDbPlants();
+    refreshPlants();
+  }, [loadDbPlants, refreshPlants]);
+
+  const plants = dbPlants.length > 0 ? dbPlants : authPlants;
   const {
     devices,
     selectedDevice,
@@ -56,15 +81,41 @@ export default function DeviceConfig() {
     saveFtpConfig,
     testFtpConfig,
     isTestingFtp,
-  } = useDeviceConfig();
+  } = useDeviceConfig(selectedPlantId);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<CameraDevice | null>(null);
 
+  // Ensure only cameras fetched for the selected plant can be configured
+  useEffect(() => {
+    if (devices.length === 0) {
+      if (selectedDevice !== null) {
+        selectDevice(null);
+      }
+      return;
+    }
+
+    const isSelectedInPlant =
+      selectedDevice !== null && devices.some((d) => d.id === selectedDevice.id);
+    if (!isSelectedInPlant) {
+      selectDevice(devices[0]);
+    }
+  }, [devices, selectedDevice, selectDevice]);
+
+  const selectedPlantName = useMemo(() => {
+    if (!selectedDevice) return undefined;
+    const pid = selectedDevice.plantId || 'PL01';
+    return plants.find((p) => p.id === pid)?.name || pid;
+  }, [selectedDevice, plants]);
+
+  const handleRefresh = async () => {
+    await Promise.all([refreshDevices(), loadDbPlants(), refreshPlants()]);
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Settings className="h-7 w-7" />
@@ -74,6 +125,35 @@ export default function DeviceConfig() {
             Manage ANPR camera settings and network configuration
           </p>
         </div>
+
+        {/* Plant Filter Dropdown */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <Factory className="h-4 w-4 text-primary" />
+            <span>Plant:</span>
+          </div>
+          <Select
+            value={selectedPlantId}
+            onValueChange={switchPlant}
+            onOpenChange={(open) => {
+              if (open) loadDbPlants();
+            }}
+          >
+            <SelectTrigger className="w-64 sm:w-72 bg-card">
+              <SelectValue placeholder="Select Plant" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                All Plants (Default)
+              </SelectItem>
+              {plants.map((plant) => (
+                <SelectItem key={plant.id} value={plant.id}>
+                  {plant.name} ({plant.code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-12 gap-6">
@@ -81,9 +161,11 @@ export default function DeviceConfig() {
         <div className="col-span-12 lg:col-span-3">
           <DeviceList
             devices={devices}
+            plants={plants}
+            selectedPlantId={selectedPlantId}
             selectedDevice={selectedDevice}
             onSelectDevice={selectDevice}
-            onRefresh={refreshDevices}
+            onRefresh={handleRefresh}
             onAddDevice={addDevice}
             onUpdateDevice={updateDevice}
             onToggleDashboard={toggleCameraDashboard}
@@ -213,6 +295,7 @@ export default function DeviceConfig() {
                 />
                 <DeviceActions
                   device={selectedDevice}
+                  plantName={selectedPlantName}
                   onReboot={rebootDevice}
                   onExportConfig={exportDeviceConfig}
                   onDeleteDevice={deleteDevice}
@@ -230,10 +313,14 @@ export default function DeviceConfig() {
               <CardContent className="text-center">
                 <Camera className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
                 <h3 className="text-lg font-medium text-foreground mb-2">
-                  No Device Selected
+                  {selectedPlantId !== 'all' && devices.length === 0
+                    ? 'No Cameras in Selected Plant'
+                    : 'No Device Selected'}
                 </h3>
                 <p className="text-muted-foreground">
-                  Select a camera from the list to configure its settings
+                  {selectedPlantId !== 'all' && devices.length === 0
+                    ? 'Register a camera for this plant using + or select "All Plants" to view cameras from other plants.'
+                    : 'Select a camera from the list to configure its settings'}
                 </p>
               </CardContent>
             </Card>
@@ -244,6 +331,7 @@ export default function DeviceConfig() {
       {/* Edit Camera Modal Dialog from DeviceActions */}
       <EditDeviceDialog
         device={editingDevice}
+        plants={plants}
         isOpen={isEditModalOpen}
         onClose={() => {
           setIsEditModalOpen(false);

@@ -3,6 +3,7 @@
 // Implements standard HS256 JWT signing/verification and timing-safe password verification
 
 import crypto from 'crypto';
+import { pool } from './db.js';
 
 const JWT_DEFAULT_SECRET = process.env.JWT_SECRET || 'aparna_rmc_gate_secure_plant_jwt_secret_2026';
 const SHIFT_EXPIRY_SECONDS = 8 * 3600; // 8 hours (Standard Indian industrial shift)
@@ -162,5 +163,46 @@ export function verifyPassword(inputPassword, storedHash) {
   }
 
   return false;
+}
+
+export function isSuperAdminUser(u) {
+  if (!u) return false;
+  const roleId = u.role_id || u.roleId;
+  const plantId = u.plant_id || u.plantId;
+  return roleId === 'super_admin' || (roleId === 'admin' && (!plantId || plantId === 'all'));
+}
+
+/**
+ * Resolve the authenticated user from Bearer JWT or x-user-id header (in dev).
+ * Returns null if unauthenticated.
+ */
+export async function getRequestUser(req) {
+  try {
+    const authHeader = req.headers.authorization;
+    const isProd = process.env.NODE_ENV === 'production';
+    let userId = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const result = verifyJwt(token);
+      if (result.valid && result.payload?.userId && !result.payload?.legacy) {
+        userId = result.payload.userId;
+      }
+    }
+
+    if (!userId && !isProd) {
+      userId = req.headers['x-user-id'] || null;
+    }
+
+    if (!userId) return null;
+
+    const [rows] = await pool.query(
+      'SELECT id, username, name, role_id, plant_id, plant_name, status FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    return rows.length > 0 ? rows[0] : null;
+  } catch {
+    return null;
+  }
 }
 

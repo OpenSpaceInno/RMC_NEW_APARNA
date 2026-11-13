@@ -106,7 +106,7 @@ export function SapInboundGateInScreen({
   const [issuedTicketNumber, setIssuedTicketNumber] = useState<string | null>(null);
 
   // User Auth & SAP RFC State
-  const { user } = useAuth();
+  const { user, activePlant } = useAuth();
   const [isCheckingPoRfc, setIsCheckingPoRfc] = useState(false);
   const [poRfcResult, setPoRfcResult] = useState<SapRfcCheckPoResponse | null>(null);
   const [isCheckingVehicleRfc, setIsCheckingVehicleRfc] = useState(false);
@@ -587,9 +587,10 @@ export function SapInboundGateInScreen({
   const checkLatestFtpPlate = useCallback(async (isManual = false) => {
     try {
       if (isManual) setIsCheckingFtp(true);
-      const res = await api.getLatestFtpPlate();
+      const scopedPlantId = activePlant?.id || user?.plantId || plant;
+      const res = await api.getLatestFtpPlate({ plantId: scopedPlantId });
 
-      if (res && res.success && res.plate && res.filename) {
+      if (res && res.success && res.filename) {
         const fullImg = resolveImageUrl(res.imageUrl);
         const timeStr = res.lastModified ? new Date(res.lastModified).toLocaleTimeString() : new Date().toLocaleTimeString();
 
@@ -598,14 +599,16 @@ export function SapInboundGateInScreen({
           lastDetectedFilenameRef.current = res.filename;
 
           const newEvidence = {
-            plate: res.plate,
+            plate: res.plate || '',
             filename: res.filename,
             imageUrl: fullImg || res.imageUrl || '',
             timestamp: timeStr,
           };
 
           setFtpEvidence(newEvidence);
-          setVehicleNumber(res.plate);
+          if (res.plate) {
+            setVehicleNumber(res.plate);
+          }
 
           if (isNew) {
             toast.success(`Vehicle Plate ${res.plate} Captured from FTP!`, {
@@ -627,7 +630,7 @@ export function SapInboundGateInScreen({
     } finally {
       if (isManual) setIsCheckingFtp(false);
     }
-  }, [ftpEvidence]);
+  }, [ftpEvidence, activePlant?.id, user?.plantId, plant]);
 
   useEffect(() => {
     if (!isOpen) return;
