@@ -46,8 +46,8 @@ const CLOUD_TARGET = process.env.CLOUD_RTSP_TARGET || 'rtsp://213.210.37.249:855
 
 const CAMERAS = [
   {
-    id: 'cam1',
-    name: 'Camera 1 (Entry ANPR 3K HEVC -> H.264)',
+    id: 'cam1_local',
+    name: 'Camera 1 Local (Entry ANPR 3K HEVC -> H.264 @ local)',
     ip: '192.168.0.101',
     args: [
       '-rtsp_transport', 'tcp',
@@ -63,17 +63,47 @@ const CAMERAS = [
       '-an',
       '-rtsp_transport', 'tcp',
       '-f', 'rtsp',
+      'rtsp://127.0.0.1:8554/live_cam1'
+    ]
+  },
+  {
+    id: 'cam1_cloud',
+    name: 'Camera 1 Cloud Forwarder (local -> cloud)',
+    ip: '127.0.0.1',
+    args: [
+      '-rtsp_transport', 'tcp',
+      '-timeout', '5000000',
+      '-i', 'rtsp://127.0.0.1:8554/live_cam1',
+      '-c', 'copy',
+      '-an',
+      '-rtsp_transport', 'tcp',
+      '-f', 'rtsp',
       `${CLOUD_TARGET}/live_cam1`
     ]
   },
   {
-    id: 'cam2',
-    name: 'Camera 2 (Exit Scale 1080p H.264)',
+    id: 'cam2_local',
+    name: 'Camera 2 Local (Exit Scale 1080p H.264 @ local)',
     ip: '192.168.0.99',
     args: [
       '-rtsp_transport', 'tcp',
       '-timeout', '5000000',
       '-i', 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
+      '-c', 'copy',
+      '-an',
+      '-rtsp_transport', 'tcp',
+      '-f', 'rtsp',
+      'rtsp://127.0.0.1:8554/live_cam2'
+    ]
+  },
+  {
+    id: 'cam2_cloud',
+    name: 'Camera 2 Cloud Forwarder (local -> cloud)',
+    ip: '127.0.0.1',
+    args: [
+      '-rtsp_transport', 'tcp',
+      '-timeout', '5000000',
+      '-i', 'rtsp://127.0.0.1:8554/live_cam2',
       '-c', 'copy',
       '-an',
       '-rtsp_transport', 'tcp',
