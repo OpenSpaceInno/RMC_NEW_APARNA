@@ -107,7 +107,7 @@ export class CloudSyncService {
             port: Number(process.env.REMOTE_DB_PORT) || 3306,
             user: process.env.REMOTE_DB_USER || 'root',
             password: process.env.REMOTE_DB_PASSWORD || '',
-            database: process.env.REMOTE_DB_NAME || 'rmc_gate_system',
+            database: process.env.REMOTE_DB_NAME || process.env.DB_NAME || 'Aparna_RMC_Db',
             waitForConnections: true,
             connectionLimit: 5,
             queueLimit: 0,

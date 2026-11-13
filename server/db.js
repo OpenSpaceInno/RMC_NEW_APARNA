@@ -26,7 +26,7 @@ const pool = mysql.createPool({
   port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'rmc_gate_system',
+  database: process.env.DB_NAME || 'Aparna_RMC_Db',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -35,7 +35,7 @@ const pool = mysql.createPool({
 // Test connection
 async function testConnection() {
   try {
-    const dbName = process.env.DB_NAME || 'rmc_gate_system';
+    const dbName = process.env.DB_NAME || 'Aparna_RMC_Db';
     // First, create database if it doesn't exist
     const connection = await poolWithoutDb.getConnection();
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
@@ -55,7 +55,7 @@ async function testConnection() {
 // Initialize database and tables
 async function initializeDatabase() {
   try {
-    const dbName = process.env.DB_NAME || 'rmc_gate_system';
+    const dbName = process.env.DB_NAME || 'Aparna_RMC_Db';
     const connection = await poolWithoutDb.getConnection();
     
     // Create database if it doesn't exist

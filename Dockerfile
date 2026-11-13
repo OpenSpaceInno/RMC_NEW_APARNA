@@ -28,6 +28,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV DB_NAME=Aparna_RMC_Db
 
 # Install curl for container health check
 RUN apt-get update && apt-get install -y --no-install-recommends curl \

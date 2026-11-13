@@ -14,7 +14,7 @@ services:
       - DB_PORT=${DB_PORT:-3306}
       - DB_USER=${DB_USER:-rmc_user}
       - DB_PASSWORD=${DB_PASSWORD:-SecureRmcPassword2026!}
-      - DB_NAME=${DB_NAME:-rmc_gate_system}
+      - DB_NAME=${DB_NAME:-Aparna_RMC_Db}
       - MEDIAMTX_HOST=mediamtx
       - MEDIAMTX_PORT=8888
       - SFTPGO_HOST=${SFTPGO_HOST:-213.210.37.249}
@@ -54,7 +54,7 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-RootSecurePass2026!}
-      MYSQL_DATABASE: ${DB_NAME:-rmc_gate_system}
+      MYSQL_DATABASE: ${DB_NAME:-Aparna_RMC_Db}
       MYSQL_USER: ${DB_USER:-rmc_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-SecureRmcPassword2026!}
     ports:
