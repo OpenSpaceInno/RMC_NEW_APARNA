@@ -62,11 +62,46 @@ const Weighbridge = () => {
   // Dynamic Video & Canvas refs keyed by camera device ID
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
+  const activeHlsCleanupsRef = useRef<Record<string, () => void>>({});
   const [hlsActiveMap, setHlsActiveMap] = useState<Record<string, boolean>>({});
 
   const animFrameId = useRef<number | null>(null);
   const lastDetectedFilenameRef = useRef<string | null>(null);
   const hasAlertedMatchRef = useRef<string | null>(null);
+
+  // Bulletproof callback ref: attaches HLS as soon as each video element mounts in the DOM
+  const setVideoRef = useCallback((cam: PlantCameraFeed, el: HTMLVideoElement | null) => {
+    videoRefs.current[cam.id] = el;
+    if (el) {
+      if (activeHlsCleanupsRef.current[cam.id]) {
+        activeHlsCleanupsRef.current[cam.id]();
+      }
+      activeHlsCleanupsRef.current[cam.id] = attachHlsStream({
+        video: el,
+        urlOrPair: resolveCameraHlsUrl(cam.hlsUrl || '', cam.id),
+        onConnected: () => {
+          setHlsActiveMap((prev) => ({ ...prev, [cam.id]: true }));
+        },
+        onError: () => {
+          setHlsActiveMap((prev) => ({ ...prev, [cam.id]: false }));
+        },
+        autoReconnect: true,
+      });
+    } else {
+      if (activeHlsCleanupsRef.current[cam.id]) {
+        activeHlsCleanupsRef.current[cam.id]();
+        delete activeHlsCleanupsRef.current[cam.id];
+      }
+    }
+  }, []);
+
+  // Cleanup all streams when component unmounts
+  useEffect(() => {
+    return () => {
+      Object.values(activeHlsCleanupsRef.current).forEach((fn) => fn && fn());
+      activeHlsCleanupsRef.current = {};
+    };
+  }, []);
 
   // Reset selected camera if plant cameras change and selected ID is no longer present
   useEffect(() => {
@@ -261,44 +296,7 @@ const Weighbridge = () => {
     }
   };
 
-  // Connect live IP camera streams for ONLY this plant's cameras
-  useEffect(() => {
-    const cleanups: Array<() => void> = [];
-    const timers: Record<string, any> = {};
-    setHlsActiveMap({});
 
-    cameras.forEach((cam) => {
-      const videoEl = videoRefs.current[cam.id];
-      if (!videoEl) return;
-
-      const unmount = attachHlsStream({
-        video: videoEl,
-        urlOrPair: resolveCameraHlsUrl(cam.hlsUrl || '', cam.id),
-        onConnected: () => {
-          if (timers[cam.id]) {
-            clearTimeout(timers[cam.id]);
-            timers[cam.id] = null;
-          }
-          setHlsActiveMap((prev) => ({ ...prev, [cam.id]: true }));
-        },
-        onError: () => {
-          if (!timers[cam.id]) {
-            timers[cam.id] = setTimeout(() => {
-              setHlsActiveMap((prev) => ({ ...prev, [cam.id]: false }));
-            }, 8000);
-          }
-        },
-        autoReconnect: true,
-      });
-      cleanups.push(unmount);
-    });
-
-    return () => {
-      Object.values(timers).forEach((t) => t && clearTimeout(t));
-      cleanups.forEach((fn) => fn());
-      setHlsActiveMap({});
-    };
-  }, [cameras]);
 
   // Poll camera FTP for vehicle plate on initial load
   useEffect(() => {
@@ -573,9 +571,7 @@ const Weighbridge = () => {
                     ) : (
                       <>
                         <video
-                          ref={(el) => {
-                            videoRefs.current[cam.id] = el;
-                          }}
+                          ref={(el) => setVideoRef(cam, el)}
                           playsInline
                           muted
                           autoPlay

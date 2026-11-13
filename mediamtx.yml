@@ -567,7 +567,9 @@ pathDefaults:
 paths:
   # Camera 1 - ANPR Camera (Accepts RTSP push from plant or dynamic pull)
   cam1:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam1
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   live_cam1:
     source: publisher
@@ -577,7 +579,9 @@ paths:
 
   # Camera 2 - IP Camera (Accepts RTSP push from plant or dynamic pull)
   cam2:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam2
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   live_cam2:
     source: publisher
@@ -587,24 +591,34 @@ paths:
 
   # Camera 3 - Exit / Rear Surveillance
   cam3:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam2
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   # Camera 4 / Exit 2 - New ANPR Camera
   exit2:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam1
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   cam4:
     source: publisher
 
   # Alias paths
   anpr:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam1
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   ipcam:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam2
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   weighbridge:
-    source: publisher
+    source: rtsp://127.0.0.1:8554/live_cam2
+    sourceProtocol: tcp
+    sourceOnDemand: yes
 
   # Test stream (if needed)
   test:
