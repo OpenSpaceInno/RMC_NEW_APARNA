@@ -10,6 +10,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - IS_CLOUD_SERVER=true
       - DB_HOST=${APARNA_DB_HOST:-${APARNA_HOST:-${DB_HOST:-db}}}
       - DB_PORT=${APARNA_DB_PORT:-${DB_PORT:-3306}}
       - DB_USER=${APARNA_DB_USER:-${DB_USER:-rmc_user}}

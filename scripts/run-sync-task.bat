@@ -12,3 +12,4 @@ if %ERRORLEVEL% equ 0 (
     echo [ERROR] Node.js not found in PATH >> logs\cloud-sync-task.log
 )
 exit /b %ERRORLEVEL%
+

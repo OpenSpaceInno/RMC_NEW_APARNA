@@ -197,6 +197,11 @@ export class CloudSyncService {
         }
       }
 
+      if (process.env.IS_CLOUD_SERVER === 'true' || process.env.DB_HOST === 'db') {
+        this.log('☁️ Central Cloud Server mode active — sync receiver endpoint ready on /api/sync/push');
+        return;
+      }
+
       if (!this.isEnabled) {
         this.log('ℹ️ CloudSync disabled. Set CLOUD_SYNC_ENABLED=true in server/.env to enable.');
         return;

@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Aparna RMC - Windows Scheduled Task Setup for Database Synchronization
 # Schedules synchronization to run every 5 minutes automatically.
 # ==============================================================================
@@ -54,3 +54,4 @@ try {
     Write-Host "⚠️ Warning: Could not register scheduled task with current permissions: $_" -ForegroundColor Yellow
     Write-Host "   Run PowerShell as Administrator if you want to install system-wide." -ForegroundColor Gray
 }
+
