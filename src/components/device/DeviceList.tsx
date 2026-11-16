@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CameraDevice } from '@/types/deviceConfig';
 import { Plant, DEFAULT_PLANTS } from '@/types/plant';
 import { usePlantFtpFolders } from '@/hooks/usePlantFtpFolders';
