@@ -725,22 +725,9 @@ const Weighbridge = () => {
               </div>
             </div>
 
-            {/* The 2 Big Action Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 shrink-0">
-              {/* Button 1: Get Vehicle Number */}
-              <Button
-                type="button"
-                size="lg"
-                onClick={() => handleGetVehicleNumber(true)}
-                disabled={isCheckingFtp}
-                className="h-12 sm:h-14 px-6 text-sm sm:text-base font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2.5 cursor-pointer rounded-lg active:scale-98"
-                title="Fetch latest vehicle plate number from remote camera FTP"
-              >
-                <RefreshCw className={`h-5 w-5 ${isCheckingFtp ? 'animate-spin' : ''}`} />
-                <span>{isCheckingFtp ? 'Checking FTP...' : 'Get Vehicle Number'}</span>
-              </Button>
-
-              {/* Button 2: Capture Vehicles / Get Vehicles (Uploads all images into FTP location) */}
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Button: Capture Vehicle View (Uploads all images into FTP location) */}
               <Button
                 type="button"
                 size="lg"
@@ -750,19 +737,19 @@ const Weighbridge = () => {
                 title="Capture photos from this plant's cameras and upload into FTP location for user Sarath"
               >
                 <Camera className={`h-5 w-5 text-amber-400 ${isCapturing ? 'animate-pulse' : ''}`} />
-                <span>{isCapturing ? 'Uploading to FTP...' : 'Capture Vehicles'}</span>
+                <span>{isCapturing ? 'Uploading to FTP...' : 'Capture Vehicle View'}</span>
               </Button>
             </div>
           </div>
         </div>
 
-        {/* Captured Vehicle Evidence Gallery (Shows upon clicking Capture Vehicles) */}
+        {/* Captured Vehicle Evidence Gallery (Shows upon clicking Capture Vehicle View) */}
         {capturedEvidenceList.length > 0 && (
           <div className="border-t border-[#d6c4ae] pt-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span>Captured Vehicles & Uploaded to Sarath's FTP ({capturedEvidenceList.length} photos)</span>
+                <span>Captured Vehicle Views & Uploaded to Sarath's FTP ({capturedEvidenceList.length} photos)</span>
               </div>
               <Button
                 size="sm"
