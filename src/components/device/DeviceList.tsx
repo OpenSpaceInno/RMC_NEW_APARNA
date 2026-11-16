@@ -47,6 +47,11 @@ export function DeviceList({
       : (plantOptions[0]?.id || 'PL01');
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const displayDevices = useMemo(() => {
+    if (!selectedPlantId || selectedPlantId === 'all') return devices;
+    return devices.filter(d => (d.plantId || 'PL01') === selectedPlantId);
+  }, [devices, selectedPlantId]);
+
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
   const [newModel, setNewModel] = useState('GV-DNC564-MV');
@@ -166,7 +171,7 @@ export function DeviceList({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {devices.map((device) => (
+          {displayDevices.map((device) => (
             <div
               key={device.id}
               onClick={() => onSelectDevice(device)}
@@ -266,11 +271,11 @@ export function DeviceList({
             </div>
           ))}
 
-          {devices.length === 0 && (
+          {displayDevices.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <Camera className="h-10 w-10 mx-auto mb-2 opacity-50" />
               <p className="text-sm font-medium">
-                {selectedPlantId !== 'all' ? 'No cameras in this plant' : 'No devices found'}
+                {selectedPlantId !== 'all' ? `No cameras registered in ${getPlantLabel(selectedPlantId)}` : 'No devices found'}
               </p>
               <p className="text-xs">Click refresh or + to register a camera</p>
             </div>

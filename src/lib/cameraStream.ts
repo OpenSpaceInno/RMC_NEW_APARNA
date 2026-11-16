@@ -181,6 +181,14 @@ export function attachHlsStream({
     }
   };
 
+  const onVideoData = () => {
+    if (!isDestroyed && video && video.videoWidth > 0) {
+      markSuccess();
+    }
+  };
+  video.addEventListener('loadeddata', onVideoData);
+  video.addEventListener('timeupdate', onVideoData);
+
   const scheduleReconnect = (delayMs: number = 2000) => {
     if (isDestroyed || !autoReconnect) return;
     if (reconnectTimer) return;
@@ -349,6 +357,10 @@ export function attachHlsStream({
   // Teardown function for React useEffect unmount
   return () => {
     isDestroyed = true;
+    try {
+      video.removeEventListener('loadeddata', onVideoData);
+      video.removeEventListener('timeupdate', onVideoData);
+    } catch (e) {}
     if (fallbackTimer) clearTimeout(fallbackTimer);
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatTimer) clearInterval(heartbeatTimer);

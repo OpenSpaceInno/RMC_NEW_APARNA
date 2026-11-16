@@ -1,6 +1,8 @@
 /**
  * Aparna RMC - Dedicated Plant Camera Streaming Background Daemon
  * Keeps Node.js alive 24/7 as supervisor, auto-restarts on any drop.
+ * Directly publishes plant IP cameras (192.168.0.101 & 192.168.0.99)
+ * to Cloud MediaMTX (rtsp://213.210.37.249:8554).
  */
 
 import { spawn } from 'child_process';
@@ -30,7 +32,7 @@ function getFfmpegPath() {
   return 'ffmpeg';
 }
 
-function checkPort(host, port = 554, timeoutMs = 800) {
+function checkPort(host, port = 554, timeoutMs = 1200) {
   return new Promise((resolve) => {
     const s = new net.Socket();
     s.setTimeout(timeoutMs);
@@ -46,8 +48,8 @@ const CLOUD_TARGET = process.env.CLOUD_RTSP_TARGET || 'rtsp://213.210.37.249:855
 
 const CAMERAS = [
   {
-    id: 'cam1_local',
-    name: 'Camera 1 Local (Entry ANPR 3K HEVC -> H.264 @ local)',
+    id: 'live_cam1',
+    name: 'Camera 1 (Entry ANPR 3K HEVC -> H.264 @ Cloud live_cam1)',
     ip: '192.168.0.101',
     args: [
       '-rtsp_transport', 'tcp',
@@ -60,21 +62,9 @@ const CAMERAS = [
       '-keyint_min', '25',
       '-sc_threshold', '0',
       '-b:v', '2500k',
-      '-an',
-      '-rtsp_transport', 'tcp',
-      '-f', 'rtsp',
-      'rtsp://127.0.0.1:8554/live_cam1'
-    ]
-  },
-  {
-    id: 'cam1_cloud',
-    name: 'Camera 1 Cloud Forwarder (local -> cloud)',
-    ip: '127.0.0.1',
-    args: [
-      '-rtsp_transport', 'tcp',
-      '-timeout', '5000000',
-      '-i', 'rtsp://127.0.0.1:8554/live_cam1',
-      '-c', 'copy',
+      '-maxrate', '3000k',
+      '-bufsize', '5000k',
+      '-pix_fmt', 'yuv420p',
       '-an',
       '-rtsp_transport', 'tcp',
       '-f', 'rtsp',
@@ -82,28 +72,13 @@ const CAMERAS = [
     ]
   },
   {
-    id: 'cam2_local',
-    name: 'Camera 2 Local (Exit Scale 1080p H.264 @ local)',
+    id: 'live_cam2',
+    name: 'Camera 2 (Weighbridge Scale 1080p H.264 Copy -> Cloud live_cam2)',
     ip: '192.168.0.99',
     args: [
       '-rtsp_transport', 'tcp',
       '-timeout', '5000000',
       '-i', 'rtsp://admin:Password@123@192.168.0.99:554/Streaming/Channels/101',
-      '-c', 'copy',
-      '-an',
-      '-rtsp_transport', 'tcp',
-      '-f', 'rtsp',
-      'rtsp://127.0.0.1:8554/live_cam2'
-    ]
-  },
-  {
-    id: 'cam2_cloud',
-    name: 'Camera 2 Cloud Forwarder (local -> cloud)',
-    ip: '127.0.0.1',
-    args: [
-      '-rtsp_transport', 'tcp',
-      '-timeout', '5000000',
-      '-i', 'rtsp://127.0.0.1:8554/live_cam2',
       '-c', 'copy',
       '-an',
       '-rtsp_transport', 'tcp',
@@ -115,21 +90,21 @@ const CAMERAS = [
 
 log('====================================================');
 log(' Aparna RMC - Automated Plant Camera Streaming Daemon');
-log(' Running 24/7 background supervisor. No CMD needed.');
+log(' Running 24/7 background supervisor. Direct to Cloud.');
 log(' Target Cloud: ' + CLOUD_TARGET);
 log('====================================================');
 
 async function superviseCamera(cam) {
   while (true) {
     try {
-      const isOnline = await checkPort(cam.ip, 554, 1000);
+      const isOnline = await checkPort(cam.ip, 554, 1500);
       if (!isOnline) {
-        log(`${cam.name} (${cam.ip}) waiting for camera network...`);
+        log(`⏳ ${cam.name} (${cam.ip}:554) waiting for camera network...`);
         await new Promise(r => setTimeout(r, 4000));
         continue;
       }
 
-      log(`🚀 Launching background stream for ${cam.name}...`);
+      log(`🚀 Launching live stream for ${cam.name}...`);
       
       await new Promise((resolve) => {
         const proc = spawn(ffmpegBin, cam.args, {
@@ -137,13 +112,13 @@ async function superviseCamera(cam) {
           windowsHide: true
         });
 
-        proc.on('exit', (code, signal) => {
-          log(`⚠️ ${cam.name} ended (exit ${code}). Auto-restarting in 2s...`);
+        proc.on('exit', (code) => {
+          log(`⚠️ ${cam.name} ended (exit ${code}). Auto-restarting in 3s...`);
           resolve();
         });
 
         proc.on('error', (err) => {
-          log(`⚠️ ${cam.name} error: ${err.message}. Retrying in 3s...`);
+          log(`⚠️ ${cam.name} error: ${err.message}. Retrying in 4s...`);
           resolve();
         });
       });
@@ -151,7 +126,7 @@ async function superviseCamera(cam) {
     } catch (e) {
       log(`Worker error for ${cam.name}: ${e.message}`);
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
   }
 }
 

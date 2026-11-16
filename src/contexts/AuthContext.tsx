@@ -167,7 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activePlant.id]);
 
-  const switchPlant = useCallback((plantId: string) => {
+  const switchPlant = useCallback(async (plantId: string) => {
     if (plantId === 'all') {
       setActivePlant(ALL_PLANTS_OPTION);
       localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(ALL_PLANTS_OPTION));
@@ -176,14 +176,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       return;
     }
-    const target = plants.find(p => p.id === plantId);
-    if (target) {
-      setActivePlant(target);
-      localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(target));
-      toast.success(`Plant Terminal Switched`, {
-        description: `Now monitoring ${target.name} (${target.code})`,
-      });
+    let target = plants.find(p => p.id === plantId || p.code === plantId);
+    if (!target) {
+      try {
+        const fresh = await api.getPlants();
+        if (Array.isArray(fresh) && fresh.length > 0) {
+          setPlants(fresh);
+          target = fresh.find(p => p.id === plantId || p.code === plantId);
+        }
+      } catch (err) {}
     }
+    const effectivePlant: Plant = target || {
+      id: plantId,
+      code: plantId,
+      name: `Plant ${plantId}`,
+      location: 'Plant Terminal',
+      city: 'Hyderabad',
+      capacityPerHour: 120,
+      contactPerson: 'Operations Lead',
+      contactPhone: '+91 98490 00000',
+      contactEmail: 'operations@aparna-rmc.com',
+      status: 'active'
+    };
+    setActivePlant(effectivePlant);
+    localStorage.setItem(AUTH_PLANT_KEY, JSON.stringify(effectivePlant));
+    toast.success(`Plant Terminal Switched`, {
+      description: `Now monitoring ${effectivePlant.name} (${effectivePlant.code})`,
+    });
   }, [plants]);
 
   // Fetch demo users, roles & plants on load

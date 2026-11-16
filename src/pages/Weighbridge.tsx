@@ -77,22 +77,35 @@ const WeighbridgeCameraCard = React.memo(({
     let destroyed = false;
 
     const handlePlaying = () => {
-      if (!destroyed && video.videoWidth > 0) {
+      if (!destroyed && video.videoWidth > 0 && !video.paused) {
         setIsLiveStreamPlaying(true);
       }
     };
 
     const handleWaiting = () => {
-      if (!destroyed && (video.readyState < 2 || video.videoWidth === 0)) {
+      if (!destroyed && (video.readyState < 2 || video.videoWidth === 0 || video.paused)) {
         setIsLiveStreamPlaying(false);
       }
     };
+
+    let lastTime = -1;
+    const stallWatcher = setInterval(() => {
+      if (destroyed || !video) return;
+      if (video.videoWidth > 0 && !video.paused && video.currentTime !== lastTime) {
+        lastTime = video.currentTime;
+        setIsLiveStreamPlaying(true);
+      } else if (video.paused || video.ended || video.videoWidth === 0) {
+        setIsLiveStreamPlaying(false);
+      }
+    }, 2000);
 
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('loadeddata', handlePlaying);
     video.addEventListener('timeupdate', handlePlaying);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('stalled', handleWaiting);
+    video.addEventListener('pause', handleWaiting);
+    video.addEventListener('ended', handleWaiting);
     video.addEventListener('error', () => {
       if (!destroyed) setIsLiveStreamPlaying(false);
     });
@@ -102,7 +115,9 @@ const WeighbridgeCameraCard = React.memo(({
       video,
       urlOrPair: streamPair,
       onConnected: () => {
-        // Live stream status will be confirmed when frames actively render
+        if (!destroyed && video.videoWidth > 0) {
+          setIsLiveStreamPlaying(true);
+        }
       },
       onError: () => {
         if (!destroyed) setIsLiveStreamPlaying(false);
@@ -113,11 +128,14 @@ const WeighbridgeCameraCard = React.memo(({
 
     return () => {
       destroyed = true;
+      clearInterval(stallWatcher);
       video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('loadeddata', handlePlaying);
       video.removeEventListener('timeupdate', handlePlaying);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('stalled', handleWaiting);
+      video.removeEventListener('pause', handleWaiting);
+      video.removeEventListener('ended', handleWaiting);
       unmountHls();
     };
   }, [cam.id, cam.hlsUrl]);

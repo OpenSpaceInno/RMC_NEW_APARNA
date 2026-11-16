@@ -72,9 +72,13 @@ export function useGateCameras() {
           })
         );
 
-        setCameras(formattedList);
+        const scopedList = effectivePlantId && effectivePlantId !== 'all'
+          ? formattedList.filter(cam => (cam.plantId || 'PL01') === effectivePlantId)
+          : formattedList;
 
-        const hasCam = (id: string) => formattedList.some((cam) => cam.id === id);
+        setCameras(scopedList);
+
+        const hasCam = (id: string) => scopedList.some((cam) => cam.id === id);
 
         // Ensure default RTSP configs exist for legacy seeded cameras if present in this plant
         if (hasCam('cam_gate_1')) {

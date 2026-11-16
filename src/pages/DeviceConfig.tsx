@@ -86,9 +86,14 @@ export default function DeviceConfig() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<CameraDevice | null>(null);
 
+  const filteredDevices = useMemo(() => {
+    if (!selectedPlantId || selectedPlantId === 'all') return devices;
+    return devices.filter(d => (d.plantId || 'PL01') === selectedPlantId);
+  }, [devices, selectedPlantId]);
+
   // Ensure only cameras fetched for the selected plant can be configured
   useEffect(() => {
-    if (devices.length === 0) {
+    if (filteredDevices.length === 0) {
       if (selectedDevice !== null) {
         selectDevice(null);
       }
@@ -96,11 +101,11 @@ export default function DeviceConfig() {
     }
 
     const isSelectedInPlant =
-      selectedDevice !== null && devices.some((d) => d.id === selectedDevice.id);
+      selectedDevice !== null && filteredDevices.some((d) => d.id === selectedDevice.id);
     if (!isSelectedInPlant) {
-      selectDevice(devices[0]);
+      selectDevice(filteredDevices[0]);
     }
-  }, [devices, selectedDevice, selectDevice]);
+  }, [filteredDevices, selectedDevice, selectDevice]);
 
   const selectedPlantName = useMemo(() => {
     if (!selectedDevice) return undefined;
@@ -313,12 +318,12 @@ export default function DeviceConfig() {
               <CardContent className="text-center">
                 <Camera className="h-16 w-16 mx-auto mb-4 text-muted-foreground/50" />
                 <h3 className="text-lg font-medium text-foreground mb-2">
-                  {selectedPlantId !== 'all' && devices.length === 0
+                  {selectedPlantId !== 'all' && filteredDevices.length === 0
                     ? 'No Cameras in Selected Plant'
                     : 'No Device Selected'}
                 </h3>
                 <p className="text-muted-foreground">
-                  {selectedPlantId !== 'all' && devices.length === 0
+                  {selectedPlantId !== 'all' && filteredDevices.length === 0
                     ? 'Register a camera for this plant using + or select "All Plants" to view cameras from other plants.'
                     : 'Select a camera from the list to configure its settings'}
                 </p>
