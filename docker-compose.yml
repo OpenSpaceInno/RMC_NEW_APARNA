@@ -25,6 +25,7 @@ services:
       - SFTPGO_PASS=${SFTPGO_PASS:-Rmc@Aparna#2026}
       - SFTPGO_FTP_PORT=${SFTPGO_FTP_PORT:-2121}
       - SFTPGO_SFTP_PORT=${SFTPGO_SFTP_PORT:-2222}
+      - CLOUD_SYNC_SECRET=${CLOUD_SYNC_SECRET:-Aparna_RMC_Cloud_Sync_Secret_2026!}
     depends_on:
       db:
         condition: service_healthy
