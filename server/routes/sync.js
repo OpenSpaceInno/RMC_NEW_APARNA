@@ -31,6 +31,7 @@ function sanitizeValueForMysql(val) {
 // ============================================================================
 // POST /api/sync/push
 // Central Server Receiver: Upserts incoming data batches sent from local PCs
+// Uses transactions, disables FK checks during batch, and tracks inserted vs updated
 // ============================================================================
 router.post('/push', async (req, res) => {
   const incomingSecret = req.headers['x-sync-secret'] || req.body?.syncSecret;
@@ -44,9 +45,18 @@ router.post('/push', async (req, res) => {
   }
 
   const connection = await pool.getConnection();
-  const syncedCounts = {};
+  const summary = {
+    totalTables: 0,
+    insertedRecords: 0,
+    updatedRecords: 0,
+    unchangedRecords: 0,
+    tableStats: {}
+  };
 
   try {
+    await connection.beginTransaction();
+    await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+
     // Get list of existing tables in this database
     const [existingTableRows] = await connection.query('SHOW TABLES');
     const existingTableSet = new Set(existingTableRows.map((r) => Object.values(r)[0].toLowerCase()));
@@ -76,33 +86,55 @@ router.post('/push', async (req, res) => {
         .map((c) => `\`${c}\` = VALUES(\`${c}\`)`)
         .join(', ');
 
-      let upsertedThisTable = 0;
+      let insertedCount = 0;
+      let updatedCount = 0;
+      let unchangedCount = 0;
 
-      // Process in batches of 50 to avoid packet overflow
-      const chunkSize = 50;
-      for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
-        for (const row of chunk) {
-          const values = validCols.map((col) => sanitizeValueForMysql(row[col]));
-          const placeholders = validCols.map(() => '?').join(', ');
-          const sql = `INSERT INTO \`${tableName}\` (${colListSql}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateListSql}`;
-          await connection.query(sql, values);
-          upsertedThisTable++;
+      // Process rows individually to accurately record inserted vs updated stats
+      for (const row of rows) {
+        const values = validCols.map((col) => sanitizeValueForMysql(row[col]));
+        const placeholders = validCols.map(() => '?').join(', ');
+        const sql = `INSERT INTO \`${tableName}\` (${colListSql}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateListSql}`;
+        const [result] = await connection.query(sql, values);
+
+        // In MySQL: affectedRows: 1 = inserted, 2 = updated, 0 = unchanged
+        if (result.affectedRows === 1) {
+          insertedCount++;
+        } else if (result.affectedRows === 2) {
+          updatedCount++;
+        } else {
+          unchangedCount++;
         }
       }
 
-      syncedCounts[tableName] = upsertedThisTable;
+      summary.tableStats[tableName] = {
+        total: rows.length,
+        inserted: insertedCount,
+        updated: updatedCount,
+        unchanged: unchangedCount
+      };
+      summary.insertedRecords += insertedCount;
+      summary.updatedRecords += updatedCount;
+      summary.unchangedRecords += unchangedCount;
+      summary.totalTables++;
     }
 
-    console.log(`📥 [Sync Receiver] Received from plant [${plantId || 'remote'}]:`, syncedCounts);
+    await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+    await connection.commit();
+
+    console.log(`📥 [Sync Receiver] Upserted from plant [${plantId || 'remote'}]: Inserted=${summary.insertedRecords}, Updated=${summary.updatedRecords}, Unchanged=${summary.unchangedRecords} across ${summary.totalTables} tables`);
 
     res.json({
       success: true,
       plantId,
-      syncedTables: syncedCounts,
+      summary,
       serverTime: new Date().toISOString(),
     });
   } catch (error) {
+    try {
+      await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+      await connection.rollback();
+    } catch {}
     console.error('[Sync Receiver] Upsert error:', error);
     res.status(500).json({ success: false, error: error.message });
   } finally {
@@ -129,8 +161,8 @@ router.get('/status', async (req, res) => {
 // ============================================================================
 router.post('/trigger', async (req, res) => {
   try {
-    cloudSyncService.runSyncCycle().catch((e) => console.warn('Manual sync cycle note:', e.message));
-    res.json({ success: true, message: 'Sync cycle triggered' });
+    const result = await cloudSyncService.runSyncCycle();
+    res.json({ success: true, message: 'Sync cycle completed', report: result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
